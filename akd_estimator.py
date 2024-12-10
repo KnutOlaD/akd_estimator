@@ -14,7 +14,6 @@ from scipy.stats import gaussian_kde
 import matplotlib.colors as colors
 import time as time
 
-
 # ------------------------------------------------------- #
 ###########################################################
 ##################### FUNCTIONS ###########################
