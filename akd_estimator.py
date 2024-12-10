@@ -7,7 +7,6 @@ Author: Knut Ola Dølven
 
 import numpy as np
 import matplotlib.pyplot as plt
-import pickle
 from scipy.stats import gaussian_kde
 from numba import jit, prange
 from scipy.stats import gaussian_kde
@@ -116,11 +115,6 @@ def create_test_data(stdev=1.4,
         bw[:len(particles)] = bw[:len(particles)] + np.sqrt(stdev * 0.001)
         # Limit bw to a maximum value
         # bw[bw > 20] = 20
-
-    with open('trajectories_full.pkl', 'wb') as f:
-        pickle.dump(trajectories[-1], f)
-    with open('bw.pkl', 'wb') as f:
-        pickle.dump(bw, f)
 
     return trajectories, bw
 
@@ -530,7 +524,7 @@ if __name__ == "__main__":
     grid_x = np.linspace(0, grid_size, grid_size)
     grid_y = np.linspace(0, grid_size, grid_size)
     
-    create_data = False
+    create_data = True
     if create_data == True:
 
         trajectories, bw = create_test_data(stdev=1.4,num_particles_per_timestep=5000,time_steps=380,dt=0.1,grid_size=100,illegal_positions=None)
