@@ -20,6 +20,22 @@ import time as time
 # ------------------------------------------------------- #
 
 time_start = time.time()
+create_data = False
+do_plotting = True
+#set plotting style
+plotting_style = 'light'
+if plotting_style == 'light':
+    plt.style.use('default')
+    cmap1 = 'plasma'
+    cmap2 = 'Spectral'
+else:
+    plt.style.use('dark_background')
+    cmap1 = 'magma'
+    # Create custom colormap: red -> black -> blue
+    colors_list = ['red', 'black', 'blue']
+    n_bins = 100  # Number of color gradations
+    cmap2 = colors.LinearSegmentedColormap.from_list("custom", colors_list, N=n_bins)
+    
 
 
 # ########################################## #
@@ -48,6 +64,44 @@ def create_test_data(stdev=1.4,
                      dt=0.1, 
                      grid_size=100,
                      illegal_positions=None):
+    """Generate test data for particle dispersion simulation with obstacles.
+
+    This function simulates particle trajectories in a 2D domain with optional illegal regions
+    (obstacles). Particles are released from a fixed position and advected by a time-varying
+    velocity field while experiencing stochastic diffusion. Particles that enter illegal regions
+    are mapped to the nearest legal position.
+
+    Parameters
+    ----------
+    stdev : float, default=1.4
+        Standard deviation of the stochastic diffusion term
+    num_particles_per_timestep : int, default=5000
+        Number of particles released at each timestep
+    time_steps : int, default=380
+        Total number of simulation timesteps
+    dt : float, default=0.1
+        Timestep size in simulation units
+    grid_size : int, default=100
+        Size of the square simulation domain
+    illegal_positions : ndarray, optional
+        Boolean array of shape (grid_size, grid_size) marking illegal positions.
+        True indicates position is illegal/obstacle.
+
+    Returns
+    -------
+    trajectories : ndarray
+        Array of shape (num_particles_per_timestep * time_steps, 2) containing
+        particle trajectories
+    bw : ndarray
+        Array of shape (num_particles_per_timestep * time_steps,) containing
+        bandwidth values for each particle
+
+    Notes
+    -----
+    - Uses KDTree for efficient nearest-neighbor queries when mapping illegal particles
+    - Velocity field varies sinusoidally in time while conserving magnitude
+    - Bandwidth grows as sqrt(time) for each particle
+    """
     # Create a true/false mask of illegal cells
     if illegal_positions is None:
         legal_cells = np.ones((grid_size, grid_size), dtype=bool)
@@ -254,7 +308,7 @@ def generate_gaussian_kernels(num_kernels, ratio, stretch=1):
 def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_padded,
                             window_size, stats_threshold):
     """
-    Compute adaptive bandwidths for all windows with integrated statistics processing
+    Compute adaptive bandwidths for all non-zero grid cell adaptation windows in the grid.
     
     Parameters:
     -----------
@@ -266,8 +320,6 @@ def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_pad
         Size of the processing window
     stats_threshold : float
         Threshold for statistical calculations
-    dxy_grid : float
-        Grid spacing
     """
 
     pad_size = window_size // 2
@@ -465,7 +517,34 @@ def histogram_std(binned_data, effective_samples=None, bin_size=1):
 
 @jit(nopython=True)
 def calculate_autocorrelation(data):
-    '''Calculate autocorrelation for rows and columns'''
+    """
+    Calculate spatial autocorrelation along rows and columns of 2D data.
+
+    Computes the autocorrelation function separately for rows and columns of a 2D array,
+    using a vectorized implementation optimized with Numba. The autocorrelation is normalized
+    by the number of points and includes protection against zero division.
+
+    Parameters
+    ----------
+    data : ndarray
+        2D input array for which to calculate autocorrelation
+
+    Returns
+    -------
+    autocorr_rows : ndarray
+        1D array containing autocorrelation values for row-wise shifts
+    autocorr_cols : ndarray
+        1D array containing autocorrelation values for column-wise shifts
+
+    Notes
+    -----
+    - Uses Numba JIT compilation
+    - Handles edge cases (small arrays, zero values)
+    - Maximum lag is determined by smallest dimension
+    - Includes epsilon protection against zero division
+    - Returns single zero value arrays if input is too small
+    """
+
     num_rows, num_cols = data.shape
     max_lag = min(num_rows, num_cols) - 1
 
@@ -524,7 +603,6 @@ if __name__ == "__main__":
     grid_x = np.linspace(0, grid_size, grid_size)
     grid_y = np.linspace(0, grid_size, grid_size)
     
-    create_data = True
     if create_data == True:
 
         trajectories, bw = create_test_data(stdev=1.4,num_particles_per_timestep=5000,time_steps=380,dt=0.1,grid_size=100,illegal_positions=None)
@@ -649,7 +727,6 @@ if __name__ == "__main__":
     ####################################################
     # ------------------------------------------------ #
 
-    do_plotting = True
     if do_plotting == True:
 
         ##### PLOT TRAJECTORIES #####
@@ -668,12 +745,6 @@ if __name__ == "__main__":
 
         ##### PLOT RESULTS AND RESIDUALS #####
 
-        # Create custom colormap: red -> black -> blue
-        colors_list = ['red', 'black', 'blue']
-        n_bins = 100  # Number of color gradations
-        custom_cmap = colors.LinearSegmentedColormap.from_list("custom", colors_list, N=n_bins)
-        colormap = 'magma'
-
         # Create figure with 4x2 layout
         fig = plt.figure(figsize=(20, 10))
         gs = fig.add_gridspec(2, 4, hspace=0.3)
@@ -691,28 +762,28 @@ if __name__ == "__main__":
         
         
             # AKDE plot
-        pcm1 = ax1.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=colormap)
+        pcm1 = ax1.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax1.contour(grid_x, grid_y, akde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)
         ax1.set_xlim([0, 100])
         ax1.set_ylim([0, 100])
         ax1.set_title('Adaptive KDE')
 
         # HE plot
-        ax2.pcolor(grid_x, grid_y, pilot_kde, vmin=vmin, vmax=vmax,cmap=colormap)
+        ax2.pcolor(grid_x, grid_y, pilot_kde, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax2.contour(grid_x, grid_y, pilot_kde, levels[::2], colors='white',linewidths=0.2,alpha=0.5)   
         ax2.set_xlim([0, 100])
         ax2.set_ylim([0, 100])
         ax2.set_title('Histogram Estimate')
 
         # Silverman KDE plot
-        ax3.pcolor(grid_x, grid_y, kde_silverman_naive, vmin=vmin, vmax=vmax,cmap=colormap)
+        ax3.pcolor(grid_x, grid_y, kde_silverman_naive, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax3.contour(grid_x, grid_y, kde_silverman_naive, levels[::2], colors='white',linewidths=0.2,alpha=0.5) 
         ax3.set_xlim([0, 100])
         ax3.set_ylim([0, 100])
         ax3.set_title('Silverman KDE')
 
         # GT plot
-        ax4.pcolor(grid_x, grid_y, ground_truth, vmin=vmin, vmax=vmax,cmap=colormap)
+        ax4.pcolor(grid_x, grid_y, ground_truth, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax4.contour(grid_x, grid_y, ground_truth, levels[::2], colors='white',linewidths=0.2,alpha=0.5)    
         ax4.set_xlim([0, 100])
         ax4.set_ylim([0, 100])
@@ -737,16 +808,16 @@ if __name__ == "__main__":
         res_min = -res_max
 
         # Use in plotting
-        pcm2 = ax5.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=custom_cmap)
+        pcm2 = ax5.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
 
         # Plot residuals
-        pcm2 = ax5.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=custom_cmap)
+        pcm2 = ax5.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
         ax5.set_title('AKDE Residuals')
 
-        ax6.pcolor(grid_x, grid_y, he_residuals, vmin=res_min, vmax=res_max, cmap=custom_cmap)
+        ax6.pcolor(grid_x, grid_y, he_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
         ax6.set_title('HE Residuals')
 
-        ax7.pcolor(grid_x, grid_y, silverman_residuals, vmin=res_min, vmax=res_max, cmap=custom_cmap)
+        ax7.pcolor(grid_x, grid_y, silverman_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
         ax7.set_title('Silverman Residuals')
 
         # Add residuals colorbar
