@@ -1,4 +1,5 @@
 '''
+
 Script for testing the adaptive hydrid Kernel Density estimator
 
 Author: Knut Ola Dølven
@@ -20,7 +21,7 @@ import time as time
 # ------------------------------------------------------- #
 
 time_start = time.time()
-create_data = False
+create_data = True
 do_plotting = True
 #set plotting style
 plotting_style = 'light'
@@ -306,7 +307,7 @@ def generate_gaussian_kernels(num_kernels, ratio, stretch=1):
 
 @jit(nopython=True, parallel=True)
 def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_padded,
-                            window_size, stats_threshold):
+                            window_size, stats_threshold, grid_cell_size=1):
     """
     Compute adaptive bandwidths for all non-zero grid cell adaptation windows in the grid.
     
@@ -380,18 +381,20 @@ def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_pad
                             if denominator < 1e-10:
                                 denominator = 1e-10
 
-                            integral_length_scale = np.sum(autocorr) / denominator
+                            integral_length_scale = (np.sum(autocorr)*grid_cell_size) / denominator
                             
                         else:
                             integral_length_scale = 1e-10
                     else:
                         integral_length_scale = 1e-10
                     
-                    print(integral_length_scale)
-                    denominator = integral_length_scale
+                    #Scaled integral length scale
+                    integral_length_scale_scaled = integral_length_scale / grid_cell_size
+
+                   
                     if denominator < 1e-10:
                         denominator = 1e-10
-                    n_eff = np.sum(data_subset) / denominator
+                    n_eff = np.sum(data_subset) / integral_length_scale_scaled
                 
                 # Calculate bandwidth with protection
                 #get dimensionality of the data
@@ -582,6 +585,63 @@ def calculate_autocorrelation(data):
     
     return autocorr_rows, autocorr_cols
 
+#Identify shadowed cells
+def identify_shadowed_cells(x0, y0, xi, yj, legal_grid):
+    """
+    Identify shadowed cells in the legal grid.
+
+    Input: 
+    x0: x-coordinate of the kernel origin grid cell (for grid projected)
+    y0: y-coordinate of the kernel origin grid cell (for grid projected)
+    xi: x-coordinates of the kernel
+    yj: y-coordinates of the kernel
+    legal_grid: 2D boolean array with legal cells (true means legal)
+    """
+    shadowed_cells = []
+    for i in xi:
+        for j in yj:
+            cells = bresenham(x0, y0, i, j)
+            for cell in cells:
+                if not legal_grid[cell[0], cell[1]]:
+                    shadowed_cells.append((i,j))
+    return shadowed_cells
+
+#Make a bresenham line
+@jit(nopython=True)
+def bresenham(x0, y0, x1, y1): 
+    """
+    Bresenham's Line Algorithm to generate points between (x0, y0) and (x1, y1)
+
+    Intput:
+    x0: x-coordinate of the starting point
+    y0: y-coordinate of the starting point
+    x1: x-coordinate of the ending point
+    y1: y-coordinate of the ending point
+
+    Output:
+    points: List of points between (x0, y0) and (x1, y1)
+    """
+    points = []
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    sx = 1 if x0 < x1 else -1 # Step direction for x
+    sy = 1 if y0 < y1 else -1 # Step direction for y
+    err = dx - dy
+
+    while True:
+        points.append((x0, y0))
+        if x0 == x1 and y0 == y1:
+            break
+        e2 = err * 2
+        if e2 > -dy:
+            err -= dy
+            x0 += sx
+        if e2 < dx:
+            err += dx
+            y0 += sy
+
+    return points
+
 
 # -------------------------------------------------- #
 
@@ -605,7 +665,24 @@ if __name__ == "__main__":
     
     if create_data == True:
 
-        trajectories, bw = create_test_data(stdev=1.4,num_particles_per_timestep=5000,time_steps=380,dt=0.1,grid_size=100,illegal_positions=None)
+        #Define illegal grid cells
+        illegal_cells = np.zeros((grid_size,grid_size))
+        #illegal_cells[55:65,70:85] = 1
+
+        a = 40
+        b = 25
+        x0 = 55
+        y0 = 95
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
+                    illegal_cells[i,j] = 1
+
+
+        illegal_positions = illegal_cells.astype(bool)
+
+        # Generate test data with illegal positions
+        trajectories, bw = create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=380, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
 
         trajectories_test = trajectories[::frac_diff]
         #Normalize the weights
@@ -660,8 +737,6 @@ if __name__ == "__main__":
                                                                           bandwidths=particle_initial_bandwidths,
                                                                           weights = weights_test)
 
-
-
     # ###- Gaussian kernels -### #
 
     num_kernels = 20 #This is the number of kernels to use
@@ -674,6 +749,7 @@ if __name__ == "__main__":
 
 
     # ###- Bandwidth h estimation -### #
+
 
     # Calculate integral length scale of the whole field to get rough size of adaptation window 
     autocorr_rows,autocorr_cols = calculate_autocorrelation(pilot_kde) #Calculate the autocorrelation along rows and columns
@@ -716,7 +792,7 @@ if __name__ == "__main__":
                                     gaussian_kernels,
                                     bandwidths_h,
                                     h_matrix_adaptive,
-                                    illegal_cells=None)
+                                    illegal_cells=illegal_positions)
 
     
 
@@ -733,10 +809,10 @@ if __name__ == "__main__":
 
         plt.figure(figsize=(10,5))
         plt.subplot(1,2,1)
-        plt.plot(trajectories[:,0],trajectories[:,1],'.')
+        plt.plot(trajectories[:,1],trajectories[:,0],'.')
         plt.title('Full data')
         plt.subplot(1,2,2)
-        plt.plot(trajectories_test[:,0],trajectories_test[:,1],'.')
+        plt.plot(trajectories_test[:,1],trajectories_test[:,0],'.')
         plt.title('Test data')
         plt.show()
 
@@ -760,8 +836,7 @@ if __name__ == "__main__":
         ax3 = fig.add_subplot(gs[0, 2])
         ax4 = fig.add_subplot(gs[0, 3])
         
-        
-            # AKDE plot
+        # AKDE plot
         pcm1 = ax1.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax1.contour(grid_x, grid_y, akde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)
         ax1.set_xlim([0, 100])
