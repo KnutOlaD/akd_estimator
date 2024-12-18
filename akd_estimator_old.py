@@ -21,7 +21,7 @@ import time as time
 # ------------------------------------------------------- #
 
 time_start = time.time()
-create_data = False
+create_data = True
 do_plotting = True
 #set plotting style
 plotting_style = 'light'
@@ -179,164 +179,92 @@ def create_test_data(stdev=1.4,
 # #### FUNCTIONS FOR KDE ESTIMATION #### #
 # ###################################### #
 
-@jit(nopython=True, parallel=True)
-def _process_kernels(non_zero_indices, kde_pilot, cell_bandwidths, kernel_bandwidths, 
-                    gaussian_kernels, illegal_cells, gridsize_x, gridsize_y):
-    
-    """
-    Project kernel density estimation onto a 2D grid with optimized memory layout and Numba acceleration.
-    Handles illegal/blocked cells by redistributing their density contribution to surrounding legal cells.
-    Uses pre-computed Gaussian kernels for efficiency and variable bandwidth selection based on pilot estimate.
-    
-    Parameters
-    ----------
-    grid_x : array-like
-        X-coordinates of the grid points
-    grid_y : array-like
-        Y-coordinates of the grid points
-    kde_pilot : ndarray
-        Pilot kernel density estimate on the grid
-    gaussian_kernels : list of ndarrays
-        Pre-computed Gaussian kernels for different bandwidths
-    kernel_bandwidths : ndarray
-        Bandwidths corresponding to pre-computed kernels
-    cell_bandwidths : ndarray
-        Bandwidth values for each cell in the grid
-    illegal_cells : ndarray, optional
-        Boolean mask of illegal/blocked cells (True = blocked)
-        
-    Returns
-    -------
-    ndarray
-        Updated kernel density estimate with illegal cell handling
-        
-    Notes
-    -----
-    - Uses contiguous memory layout for performance
-    - Handles illegal cells by redistributing their weights
-    - Optimized with Numba for parallel processing
-    - Only processes non-zero pilot KDE values
-    - Kernel selection based on closest available bandwidth
-    - Memory efficient by processing only required grid cells
-    """
-    
-    n_u = np.zeros((gridsize_x, gridsize_y))
-    
-    for idx in prange(len(non_zero_indices)):
-        i, j = non_zero_indices[idx]
-        
-        # Get kernel index and kernel
-        kernel_index = np.argmin(np.abs(kernel_bandwidths - cell_bandwidths[i, j]))
-        kernel = gaussian_kernels[kernel_index].copy()  # Need copy for numba
-        kernel_size = len(kernel) // 2
-        
-        # Window boundaries
-        i_min = max(i - kernel_size, 0)
-        i_max = min(i + kernel_size + 1, gridsize_x)
-        j_min = max(j - kernel_size, 0)
-        j_max = min(j + kernel_size + 1, gridsize_y)
-        
-        # Handle illegal cells
-        illegal_window = illegal_cells.copy()[i_min:i_max, j_min:j_max]
-
-        # ## Find blocked cells... ## #
-
-        # Define adaptation grid
-        x0, y0 = i, j
-        xi = np.arange(i_min, i_max)
-        yj = np.arange(j_min, j_max)
-        
-        legal_cells = ~illegal_cells.copy()
-        illegal_sum = 0
-
-        if np.any(illegal_window):# and illegal_sum > 0:
-            shadowed_cells = identify_shadowed_cells(x0, y0, xi, yj, legal_cells)
-            #print(shadowed_cells)
-            
-            for cell_idx in range(len(shadowed_cells)):
-                shadow_i = shadowed_cells[cell_idx][0] - i_min #convert to adaptation grid
-                shadow_j = shadowed_cells[cell_idx][1] - j_min
-                #print(shadow_i, shadow_j)
-                if (0 <= shadow_i < illegal_window.shape[0] and 
-                    0 <= shadow_j < illegal_window.shape[1]):
-                    illegal_window[shadow_i, shadow_j] = True
-                    illegal_sum += kde_pilot[i,j]*kernel[shadow_i, shadow_j]                       
-                    kernel[shadow_i, shadow_j] = 0 #setting the kernel to zero in the shadowed cells
-
-        weighted_kernel = kernel * (kde_pilot[i,j] + illegal_sum) #adding the shadowed cell weight to the non-zero cells
-        #else:
-        #    weighted_kernel = kernel * kde_pilot[i,j]
-
-        # Add contribution
-        n_u[i_min:i_max, j_min:j_max] += weighted_kernel[
-            max(0, kernel_size - i):kernel_size + min(gridsize_x - i, kernel_size + 1),
-            max(0, kernel_size - j):kernel_size + min(gridsize_y - j, kernel_size + 1)
-        ]
-    
-    return n_u
-
 def grid_proj_kde(grid_x, 
                   grid_y, 
                   kde_pilot, 
                   gaussian_kernels, 
-                  kernel_bandwidths, cell_bandwidths, illegal_cells=None):
+                  kernel_bandwidths, 
+                  cell_bandwidths,
+                  illegal_cells = None):
     """
-    Project kernel density estimation onto a 2D grid with optimized memory layout and Numba acceleration.
-    
-    Parameters
-    ----------
-    grid_x : array-like
-        X-coordinates of the grid points
-    grid_y : array-like
-        Y-coordinates of the grid points
-    kde_pilot : ndarray
-        Pilot kernel density estimate on the grid
-    gaussian_kernels : list of ndarrays
-        Pre-computed Gaussian kernels for different bandwidths
-    kernel_bandwidths : ndarray
-        Bandwidths corresponding to pre-computed kernels
-    cell_bandwidths : ndarray
-        Bandwidth values for each cell in the grid
-    illegal_cells : ndarray, optional
-        Boolean mask of illegal/blocked cells (True = blocked)
-        
-    Returns
-    -------
-    ndarray
-        Updated kernel density estimate with illegal cell handling
-        
-    Notes
-    -----
-    - Uses contiguous memory layout for performance
-    - Handles illegal cells by redistributing their weights
-    - Optimized with Numba for parallel processing
-    - Only processes non-zero pilot KDE values
+    Projects a kernel density estimate (KDE) onto a grid using Gaussian kernels.
+
+    Parameters:
+    grid_x (np.array): Array of grid cell boundaries in the x-direction.
+    grid_y (np.array): Array of grid cell boundaries in the y-direction.
+    kde_pilot (np.array): The pilot KDE values on the grid.
+    gaussian_kernels (list): List of Gaussian kernel matrices.
+    kernel_bandwidths (np.array): Array of bandwidths associated with each Gaussian kernel.
+    cell_bandwidths (np.array): Array of bandwidths of the particles.
+    illegal_cells = array of size grid_x,grid_y with True/False values for illegal cells
+
+    Returns:
+    np.array: The resulting KDE projected onto the grid.
+
+    Notes:
+    - This function only works with a simple histogram estimator as the pilot KDE.
+    - The function assumes that the Gaussian kernels are symmetric around their center.
+    - The grid size is determined by the lengths of grid_x and grid_y.
+    - The function iterates over non-zero values in the pilot KDE and applies the corresponding Gaussian kernel.
+    - The appropriate Gaussian kernel is selected based on the bandwidth of each particle.
+    - The resulting KDE is accumulated in the output grid n_u.
     """
-    
-    # Initialize illegal cells if None
+    # ONLY WORKS WITH SIMPLE HISTOGRAM ESTIMATOR ESTIMATE AS PILOT KDE!!!
+
     if illegal_cells is None:
-        illegal_cells = np.zeros((len(grid_x), len(grid_y)), dtype=np.bool_)
+        illegal_cells = np.zeros((len(grid_x), len(grid_y)), dtype=bool)
+    #else:
+        #illegal_cells = np.zeros((len(grid_x), len(grid_y)), dtype=bool)
+        #check if any of the illegal cell positions are within the kernel area
     
-    # Get grid sizes
-    gridsize_x, gridsize_y = len(grid_x), len(grid_y)
+    # Get the grid size
+    gridsize_x = len(grid_x)
+    gridsize_y = len(grid_y)
+
+    n_u = np.zeros((gridsize_x, gridsize_y))
+
+    # Get the indices of non-zero kde_pilot values
+    non_zero_indices = np.argwhere(kde_pilot > 0)
+   
+    # Find the closest kernel indices for each particle bandwidth
+    # kernel_indices = np.argmin(np.abs(kernel_bandwidths[:, np.newaxis] - cell_bandwidths[tuple(non_zero_indices.T)]), axis=0)
     
-    # Convert gaussian_kernels to homogeneous float64 arrays
-    gaussian_kernels = [np.ascontiguousarray(kernel, dtype=np.float64) for kernel in gaussian_kernels]
-    
-    # Pre-compute non-zero indices
-    non_zero_indices = np.array(np.where(kde_pilot > 0)).T
-    
-    # Convert inputs to contiguous arrays with consistent dtypes
-    kde_pilot = np.ascontiguousarray(kde_pilot, dtype=np.float64)
-    cell_bandwidths = np.ascontiguousarray(cell_bandwidths, dtype=np.float64)
-    kernel_bandwidths = np.ascontiguousarray(kernel_bandwidths, dtype=np.float64)
-    illegal_cells = np.ascontiguousarray(illegal_cells, dtype=np.bool_)
-    
-    # Process kernels using numba-optimized function
-    n_u = _process_kernels(non_zero_indices, kde_pilot, cell_bandwidths,
-                          kernel_bandwidths, gaussian_kernels, illegal_cells,
-                          gridsize_x, gridsize_y)
-    
+    for idx in non_zero_indices:
+        i, j = idx
+        # Get the appropriate kernel for the current particle bandwidth
+        # find the right kernel index
+        kernel_index = np.argmin(np.abs(kernel_bandwidths - cell_bandwidths[i, j]))
+        # kernel_index = kernel_indices[i * grid_size + j]
+        kernel = gaussian_kernels[kernel_index]
+        kernel_size = len(kernel) // 2  # Because it's symmetric around the center.
+
+        # Define the window boundaries
+        i_min = max(i - kernel_size, 0)
+        i_max = min(i + kernel_size + 1, gridsize_x)
+        j_min = max(j - kernel_size, 0)
+        j_max = min(j + kernel_size + 1, gridsize_y)
+
+        #Check if there are illegal cells in the kernel area and run reflect_kernel_contribution if there are
+        #if np.any(illegal_cells[i_min:i_max, j_min:j_max]):
+
+        #Handle illegal cells
+        if np.any(np.argwhere(illegal_cells[i_min:i_max, j_min:j_max])):
+            illegal_indices = np.argwhere(illegal_cells[i_min:i_max, j_min:j_max])
+            #Sum contribution for all illegal cells in the kernel
+            illegal_kernel_sum = np.sum(kernel[illegal_indices[:,0],illegal_indices[:,1]])
+            #set them to zero
+            kernel[illegal_indices[:,0],illegal_indices[:,1]] = 0
+            #calculat the weighted kernel sum
+            weighted_kernel = kernel*(kde_pilot[i,j]+illegal_kernel_sum)
+        else:
+            weighted_kernel = kernel * kde_pilot[i, j]
+
+        # Add the contribution to the result matrix
+        n_u[i_min:i_max, j_min:j_max] += weighted_kernel[
+            max(0, kernel_size - i):kernel_size + min(gridsize_x - i, kernel_size + 1),
+            max(0, kernel_size - j):kernel_size + min(gridsize_y - j, kernel_size + 1)
+        ]
+
     return n_u
 
 def generate_gaussian_kernels(num_kernels, ratio, stretch=1):
@@ -492,8 +420,8 @@ def histogram_estimator(x_pos, y_pos, grid_x, grid_y, bandwidths=None, weights=N
     weights (np.array): weights of the particles
 
     Output:
-    total_weight: np.array of shape (grid_size, grid_size)
     particle_count: np.array of shape (grid_size, grid_size)
+    total_weight: np.array of shape (grid_size, grid_size)
     average_bandwidth: np.array of shape (grid_size, grid_size)
     '''
 
@@ -541,52 +469,6 @@ def histogram_estimator(x_pos, y_pos, grid_x, grid_y, bandwidths=None, weights=N
 
     return total_weight, particle_count, cell_bandwidth
 
-#Numba variant - faster but gives some errors in the results.. It is approx 4 times faster than the numpy version
-#I keep it here in case I want to fix it later... 
-@jit(parallel=True,nopython=True)
-def histogram_estimator_numba(x_pos,y_pos,grid_x,grid_y,bandwidths = None,weights=None):
-    '''
-    Input:
-    x_pos (np.array): x-coordinates of the particles
-    y_pos (np.array): y-coordinates of the particles
-    grid_x (np.array): grid cell boundaries in the x-direction
-    grid_y (np.array): grid cell boundaries in the y-direction
-
-    Output:
-    particle_count: np.array of shape (grid_size, grid_size)
-    total_weight: np.array of shape (grid_size, grid_size)
-    average_bandwidth: np.array of shape (grid_size, grid_size)
-    '''
-
-    #get size of grid in x and y direction
-    grid_size_x = len(grid_x)
-    grid_size_y = len(grid_y)
-
-    # Initialize the histograms
-    particle_count = np.zeros((grid_size_x, grid_size_y), dtype=np.int32)
-    total_weight = np.zeros((grid_size_x,grid_size_y), dtype=np.float64)
-    sum_bandwidth = np.zeros((grid_size_x,grid_size_y), dtype=np.float64)
-    
-    #Normalize the particle positions to the grid
-    x_pos = (x_pos - grid_x[0])/(grid_x[1]-grid_x[0])
-    y_pos = (y_pos - grid_y[0])/(grid_y[1]-grid_y[0])
-    
-    # Create a 2D histogram of particle positions
-    for i in prange(len(x_pos)):
-        if np.isnan(x_pos[i]) or np.isnan(y_pos[i]):
-            continue
-        x = int(x_pos[i])
-        y = int(y_pos[i])
-        if x >= grid_size_x or y >= grid_size_y or x < 0 or y < 0: #check if the particle is outside the grid
-            continue
-        total_weight[y, x] += weights[i] #This is just the mass in each cell
-        particle_count[y, x] += 1
-        sum_bandwidth[y, x] += bandwidths[i]*weights[i] #weighted sum of bandwidths
-    
-    #print(np.shape(particle_count))
-
-    return particle_count, total_weight, sum_bandwidth 
-
 @jit(nopython=True)
 def histogram_std(binned_data, effective_samples=None, bin_size=1):
     '''Calculate the simple variance of the binned data
@@ -625,7 +507,7 @@ def histogram_std(binned_data, effective_samples=None, bin_size=1):
     mu_y = np.sum(binned_data * Y) / sum_data
     
     #Sheppards correction term
-    sheppard = (1/12)*bin_size*bin_size #weighted data
+    sheppard = (2/12)*bin_size*bin_size #weighted data
 
     #variance = (np.sum(binned_data*((X-mu_x)**2+(Y-mu_y)**2))/(sum_data-1))-2/12*bin_size*bin_size
 
@@ -704,7 +586,7 @@ def calculate_autocorrelation(data):
     return autocorr_rows, autocorr_cols
 
 #Identify shadowed cells
-def identify_shadowed_cells_old(x0, y0, xi, yj, legal_grid):
+def identify_shadowed_cells(x0, y0, xi, yj, legal_grid):
     """
     Identify shadowed cells in the legal grid.
 
@@ -722,45 +604,6 @@ def identify_shadowed_cells_old(x0, y0, xi, yj, legal_grid):
             for cell in cells:
                 if not legal_grid[cell[0], cell[1]]:
                     shadowed_cells.append((i,j))
-    return shadowed_cells
-
-
-@jit(nopython=True)
-def identify_shadowed_cells(x0, y0, xi, yj, legal_grid):
-    """
-    Identify shadowed cells by tracing from edges inward.
-    Cells start as potentially shadowed and are marked free 
-    if they have line of sight to kernel center.
-    """
-    grid_size = legal_grid.shape[0]
-    # Start with all cells potentially shadowed
-    shadowed = np.ones((grid_size, grid_size), dtype=np.bool_)
-    
-    # Trace from edges
-    for edge_x in [0, grid_size-1]:
-        for y in range(grid_size):
-            los_cells = bresenham(x0,y0,edge_x, y)
-            # Mark cells as free until hitting illegal cell
-            for cell in los_cells:
-                if not legal_grid[cell[0], cell[1]]:
-                    break
-                shadowed[cell[0], cell[1]] = False
-                
-    for edge_y in [0, grid_size-1]:
-        for x in range(grid_size):
-            los_cells = bresenham(x0, y0, x, edge_y)
-            for cell in los_cells:
-                if not legal_grid[cell[0], cell[1]]:
-                    break
-                shadowed[cell[0], cell[1]] = False
-    
-    # Convert to list format
-    shadowed_cells = []
-    for i in range(len(xi)):
-        for j in range(len(yj)):
-            if shadowed[xi[i], yj[j]]:
-                shadowed_cells.append((xi[i], yj[j]))
-                
     return shadowed_cells
 
 #Make a bresenham line
@@ -798,29 +641,6 @@ def bresenham(x0, y0, x1, y1):
             y0 += sy
 
     return points
-
-#This function is also not used, but keep it here in case I want to make this work someday...
-def reflect_with_shadow(x, y, xi, yj, legal_grid):
-    """
-    Helper function to reflect (xi, yj) back to a legal position
-    across the barrier while respecting the shadow.
-    """
-    x_reflect, y_reflect = xi, yj
-
-    # Reflect along x-axis if needed
-    while not legal_grid[x_reflect, yj] and x_reflect != x:
-        x_reflect += np.sign(x - xi)  # Step towards the particle
-
-    # Reflect along y-axis if needed
-    while not legal_grid[xi, y_reflect] and y_reflect != y:
-        y_reflect += np.sign(y - yj)  # Step towards the particle
-    
-    # Check final reflection position legality
-    if legal_grid[x_reflect, y_reflect]:
-        return x_reflect, y_reflect
-    else:
-        return None, None  # No valid reflection found
-
 
 
 # -------------------------------------------------- #
@@ -861,28 +681,12 @@ if __name__ == "__main__":
 
         illegal_positions = illegal_cells.astype(bool)
 
-        #define illegal hollow ellipse for the boundary testing
-
-        illegal_hollow_ellipse = illegal_cells.copy()
-        a = 40-5
-        b = 25-5
-        x0 = 55
-        y0 = 95
-        for i in range(grid_size):
-            for j in range(grid_size):
-                if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
-                    illegal_hollow_ellipse[i,j] = 0
-
-        illegal_positions_hollow_ellipse = illegal_hollow_ellipse.astype(bool)
-
         # Generate test data with illegal positions
         trajectories, bw = create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=380, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
 
         trajectories_test = trajectories[::frac_diff]
         #Normalize the weights
         weights_test = np.ones(len(trajectories_test))*len(trajectories)/len(trajectories_test)
-
-
 
     #Create histogram estimate
     ground_truth, particle_count, cell_bandwidth = histogram_estimator(trajectories[:,0],trajectories[:,1],grid_x,grid_y,bandwidths=bw,weights=np.ones(len(trajectories)))
@@ -978,14 +782,17 @@ if __name__ == "__main__":
                         adapt_window_size[0], stats_threshold
                     )
 
+
+
     # ###- Do the KDE estimate -### #
+
     akde_estimate = grid_proj_kde(grid_x,
                                     grid_y,
                                     pilot_kde,
                                     gaussian_kernels,
                                     bandwidths_h,
                                     h_matrix_adaptive,
-                                    illegal_cells=illegal_positions_hollow_ellipse)
+                                    illegal_cells=illegal_positions)
 
     
 
@@ -1009,6 +816,9 @@ if __name__ == "__main__":
         plt.title('Test data')
         plt.show()
 
+
+
+
         ##### PLOT RESULTS AND RESIDUALS #####
 
         # Create figure with 4x2 layout
@@ -1029,11 +839,6 @@ if __name__ == "__main__":
         # AKDE plot
         pcm1 = ax1.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax1.contour(grid_x, grid_y, akde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)
-        #plot illegal cells using patch
-        for i in range(grid_size):
-            for j in range(grid_size):
-                if illegal_positions[i,j]:
-                    plt.gca().add_patch(plt.Rectangle((j-0.5, i-0.5), 1, 1, fill=True, color='grey', alpha=0.2))
         ax1.set_xlim([0, 100])
         ax1.set_ylim([0, 100])
         ax1.set_title('Adaptive KDE')
@@ -1154,33 +959,3 @@ if __name__ == "__main__":
     time_end = time.time()
 
     print('Time elapsed: ', time_end-time_start)
-
-
-    ########### TESTING ###########
-    testing = False
-    if testing == True:
-        #RUN SIMPLE TEST WITH 1 KERNEL
-        #craete a dataset with only 1 particle located at 60,60 and a bandwidth of 1.0
-        test_data = np.array([[28,73]])
-        test_bw = np.array([7])
-        test_weights = np.array([1.0])
-        #use the same grid as the pilot KDE
-        grid_x = np.arange(0, 100, 1)
-        grid_y = np.arange(0, 100, 1)
-
-
-        #create the pilot KDE
-        pilot_kde_weight,pilot_kde_count,pilot_kde_average_bandwidth = histogram_estimator(test_data[:,0], test_data[:,1], grid_x, grid_y, test_bw, test_weights)
-        kde = grid_proj_kde(grid_x, grid_y, pilot_kde_weight, gaussian_kernels, bandwidths_h  ,pilot_kde_average_bandwidth , illegal_cells=illegal_cells[:100,:100])  
-
-
-        plt.figure()
-        plt.imshow(kde)#, cmap=cmap1)
-        #draw patch for the illegal cells
-        #plt.imshow(illegal_positions_hollow_ellipse[:100,:100], cmap='gray', alpha=0.2)
-        #add patch of the hollow ellipse
-        for i in range(100):
-            for j in range(100):
-                if illegal_positions_hollow_ellipse[i,j]:
-                    plt.gca().add_patch(plt.Rectangle((j-0.5, i-0.5), 1, 1, fill=True, color='grey', alpha=0.2))
-
