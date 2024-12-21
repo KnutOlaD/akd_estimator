@@ -1,183 +1,24 @@
 '''
 
-Script for testing the adaptive hydrid Kernel Density estimator
+Adaptive kernel density estimator with boundary control.
+
+Also generates test data and compares. 
 
 Author: Knut Ola Dølven
 
 '''
 
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
 from numba import jit, prange
-from scipy.stats import gaussian_kde
-import matplotlib.colors as colors
 import time as time
+import pdm_data_generator as pdg
 
 # ------------------------------------------------------- #
 ###########################################################
 ##################### FUNCTIONS ###########################
 ###########################################################
 # ------------------------------------------------------- #
-
-time_start = time.time()
-create_data = False
-do_plotting = True
-#set plotting style
-plotting_style = 'light'
-if plotting_style == 'light':
-    plt.style.use('default')
-    cmap1 = 'plasma'
-    cmap2 = 'Spectral'
-else:
-    plt.style.use('dark_background')
-    cmap1 = 'magma'
-    # Create custom colormap: red -> black -> blue
-    colors_list = ['red', 'black', 'blue']
-    n_bins = 100  # Number of color gradations
-    cmap2 = colors.LinearSegmentedColormap.from_list("custom", colors_list, N=n_bins)
-    
-
-
-# ########################################## #
-# #### FUNCTIONS FOR CREATING TEST DATA #### #
-# ########################################## #
-
-def update_positions(particles, U_a, stdev, dt):
-    '''
-    Input:
-    particles: np.array of shape (num_particles, 2)
-    U_a: np.array of shape (2,)
-
-    '''
-    # Advective term
-    advective_displacement = U_a * dt
-    # Stochastic term
-    stochastic_displacement = np.random.normal(0, stdev, particles.shape) * np.sqrt(dt)
-    # Update positions
-    particles += advective_displacement + stochastic_displacement
-    #particles = np.mod(particles, grid_size)
-    return particles
-
-def create_test_data(stdev=1.4, 
-                     num_particles_per_timestep=5000, 
-                     time_steps=380, 
-                     dt=0.1, 
-                     grid_size=100,
-                     illegal_positions=None):
-    """Generate test data for particle dispersion simulation with obstacles.
-
-    This function simulates particle trajectories in a 2D domain with optional illegal regions
-    (obstacles). Particles are released from a fixed position and advected by a time-varying
-    velocity field while experiencing stochastic diffusion. Particles that enter illegal regions
-    are mapped to the nearest legal position.
-
-    Parameters
-    ----------
-    stdev : float, default=1.4
-        Standard deviation of the stochastic diffusion term
-    num_particles_per_timestep : int, default=5000
-        Number of particles released at each timestep
-    time_steps : int, default=380
-        Total number of simulation timesteps
-    dt : float, default=0.1
-        Timestep size in simulation units
-    grid_size : int, default=100
-        Size of the square simulation domain
-    illegal_positions : ndarray, optional
-        Boolean array of shape (grid_size, grid_size) marking illegal positions.
-        True indicates position is illegal/obstacle.
-
-    Returns
-    -------
-    trajectories : ndarray
-        Array of shape (num_particles_per_timestep * time_steps, 2) containing
-        particle trajectories
-    bw : ndarray
-        Array of shape (num_particles_per_timestep * time_steps,) containing
-        bandwidth values for each particle
-
-    Notes
-    -----
-    - Uses KDTree for efficient nearest-neighbor queries when mapping illegal particles
-    - Velocity field varies sinusoidally in time while conserving magnitude
-    - Bandwidth grows as sqrt(time) for each particle
-    """
-    # Create a true/false mask of illegal cells
-    if illegal_positions is None:
-        legal_cells = np.ones((grid_size, grid_size), dtype=bool)
-        illegal_positions = np.zeros((grid_size, grid_size), dtype=bool)
-    else:
-        legal_cells = ~illegal_positions
-    # Indices of legal cells
-    legal_indices = np.argwhere(legal_cells)
-    # Coordinates
-    x_grid = np.arange(illegal_positions.shape[0])
-    y_grid = np.arange(illegal_positions.shape[1])
-    legal_coordinates = np.array([x_grid[legal_indices[:, 0]], y_grid[legal_indices[:, 1]]]).T
-    from scipy.spatial import KDTree
-    tree = KDTree(legal_coordinates)
-
-    # Release position
-    release_position = np.array([10, 10])
-    # Make U_a a periodic function with size time_steps
-    U_a = [0, 5]  # Initial value
-    # Initial magnitude
-    magU = np.sqrt(U_a[0]**2 + U_a[1]**2)
-    U_a = np.tile(U_a, (time_steps, 1))
-    for i in range(1, time_steps):
-        U_a[i][:][0] = 2 * magU + np.sin(i / 50) * 2 * magU
-        # make it a bit more complex by adding another sine function with different frequency
-        # U_a[i][:][1] = 2*magU+ np.sin(i/50)*2*magU + np.sin(i/10)*2*magU
-        #print(np.sin(i / 10))
-        # L2 normalize the velocity
-        U_a[i] = (U_a[i] / (np.sqrt(U_a[i][0]**2 + U_a[i][1]**2))) * magU  # Conservation of mass
-
-    # Simulate particle trajectories
-    trajectories = np.zeros((num_particles_per_timestep * time_steps, 2)) * np.nan
-    # Create the bandwidth vector for each particle
-    bw = np.ones(num_particles_per_timestep * time_steps) * 0
-
-    for t in range(time_steps - 1):
-        if t == 0:
-            # Initialize particle matrix at first timestep
-            particles = np.ones([num_particles_per_timestep, 2]) * release_position
-        else:
-            particles_old = particles
-
-            # Add particles to the particle array
-            particles = np.ones([num_particles_per_timestep * (t + 1), 2]) * release_position
-            # Add in the old particle positions to the new array
-            particles[:num_particles_per_timestep * t] = particles_old
-            # Set particles that have left the domain to nan
-            # Update the bw vector
-
-        print(np.shape(particles))
-        particles = update_positions(particles, U_a[t], stdev, dt)
-
-        # Reposition illegal particles
-        p_x, p_y = particles[:, 0], particles[:, 1]
-        valid_indices = ~np.isnan(p_x) & ~np.isnan(p_y) & (p_x >= 0) & (p_x < grid_size) & (p_y >= 0) & (p_y < grid_size)
-        is_illegal = np.zeros(p_x.shape, dtype=bool)
-        is_illegal[valid_indices] = ~legal_cells[p_x[valid_indices].astype(int), p_y[valid_indices].astype(int)]
-        illegal_positions = particles[is_illegal]
-        _, nearest_indices = tree.query(illegal_positions)
-        mapped_positions = legal_coordinates[nearest_indices]
-        particles[is_illegal, 0] = mapped_positions[:, 0]
-        particles[is_illegal, 1] = mapped_positions[:, 1]
-
-        trajectories[:len(particles)] = particles
-        bw[:len(particles)] = bw[:len(particles)] + np.sqrt(stdev * 0.001)
-        # Limit bw to a maximum value
-        # bw[bw > 20] = 20
-
-    return trajectories, bw
-
-#-------------------------------------------------------#
-
-# ###################################### #
-# #### FUNCTIONS FOR KDE ESTIMATION #### #
-# ###################################### #
 
 @jit(nopython=True, parallel=True)
 def _process_kernels(non_zero_indices, kde_pilot, cell_bandwidths, kernel_bandwidths, 
@@ -837,6 +678,11 @@ def reflect_with_shadow(x, y, xi, yj, legal_grid):
 
 if __name__ == "__main__":
 
+    time_start = time.time()
+
+    create_data = True
+    do_plotting = True
+
     frac_diff = 1000 #pick every 1000th particle for the test data
     grid_size = 120
     grid_size_plot = 100
@@ -876,7 +722,7 @@ if __name__ == "__main__":
         illegal_positions_hollow_ellipse = illegal_hollow_ellipse.astype(bool)
 
         # Generate test data with illegal positions
-        trajectories, bw = create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=380, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
+        trajectories, bw = pdg.create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=380, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
 
         trajectories_test = trajectories[::frac_diff]
         #Normalize the weights
@@ -997,6 +843,24 @@ if __name__ == "__main__":
     # ------------------------------------------------ #
 
     if do_plotting == True:
+
+        import matplotlib.pyplot as plt
+        import matplotlib.colors as colors
+
+        #set plotting style
+        plotting_style = 'light'
+        if plotting_style == 'light':
+            plt.style.use('default')
+            cmap1 = 'plasma'
+            cmap2 = 'Spectral'
+        else:
+            plt.style.use('dark_background')
+            cmap1 = 'magma'
+            # Create custom colormap: red -> black -> blue
+            colors_list = ['red', 'black', 'blue']
+            n_bins = 100  # Number of color gradations
+            cmap2 = colors.LinearSegmentedColormap.from_list("custom", colors_list, N=n_bins)
+            
 
         ##### PLOT TRAJECTORIES #####
 
