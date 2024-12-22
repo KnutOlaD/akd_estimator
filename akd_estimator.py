@@ -319,9 +319,9 @@ def compute_adaptive_bandwidths(preGRID_active_padded,
                     else:
                         integral_length_scale = 1e-10
                     
-                    #Scaled integral length scale
-                    #integral_length_scale_scaled = integral_length_scale / grid_cell_size
-
+                    #Correlation length scale
+                    integral_length_scale_scaled = integral_length_scale / grid_cell_size
+                    #integral_length_scale_scaled = integral_length_scale
                    
                     if denominator < 1e-10:
                         denominator = 1e-10
