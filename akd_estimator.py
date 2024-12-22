@@ -120,7 +120,9 @@ def grid_proj_kde(grid_x,
                   grid_y, 
                   kde_pilot, 
                   gaussian_kernels, 
-                  kernel_bandwidths, cell_bandwidths, illegal_cells=None):
+                  kernel_bandwidths, 
+                  cell_bandwidths, 
+                  illegal_cells=None):
     """
     Project kernel density estimation onto a 2D grid with optimized memory layout and Numba acceleration.
     
@@ -219,8 +221,11 @@ def generate_gaussian_kernels(num_kernels, ratio, stretch=1):
     return gaussian_kernels, bandwidths_h#, kernel_origin
 
 @jit(nopython=True, parallel=True)
-def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_padded,
-                            window_size, stats_threshold, grid_cell_size=1):
+def compute_adaptive_bandwidths(preGRID_active_padded, 
+                                preGRID_active_counts_padded,
+                            window_size, 
+                            stats_threshold, 
+                            grid_cell_size=1):
     """
     Compute adaptive bandwidths for all non-zero grid cell adaptation windows in the grid.
     
@@ -315,7 +320,7 @@ def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_pad
                         integral_length_scale = 1e-10
                     
                     #Scaled integral length scale
-                    integral_length_scale_scaled = integral_length_scale / grid_cell_size
+                    #integral_length_scale_scaled = integral_length_scale / grid_cell_size
 
                    
                     if denominator < 1e-10:
@@ -556,8 +561,6 @@ def calculate_autocorrelation(data):
         autocorr_cols[k] = col_sum * col_denominators[k] / max(num_cols, 1e-10)
     
     return autocorr_rows, autocorr_cols
-
-
 
 
 @jit(nopython=True)
