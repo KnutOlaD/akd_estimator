@@ -224,7 +224,7 @@ def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_pad
     """
     Compute adaptive bandwidths for all non-zero grid cell adaptation windows in the grid.
     
-    Parameters:
+    Input:
     -----------
     preGRID_active_padded : np.ndarray
         Padded grid of active particles
@@ -234,6 +234,19 @@ def compute_adaptive_bandwidths(preGRID_active_padded, preGRID_active_counts_pad
         Size of the processing window
     stats_threshold : float
         Threshold for statistical calculations
+    grid_cell_size : float (default=1) 
+
+    Output:
+    -----------
+    std_estimate : np.ndarray
+        Standard deviation estimate
+    N_eff : np.ndarray
+        Effective sample size estimate
+    integral_length_scale_matrix : np.ndarray
+        Integral length scale estimate
+    h_matrix_adaptive : np.ndarray
+        Adaptive bandwidth estimate
+
     """
 
     pad_size = window_size // 2
@@ -544,26 +557,7 @@ def calculate_autocorrelation(data):
     
     return autocorr_rows, autocorr_cols
 
-#Identify shadowed cells
-def identify_shadowed_cells_old(x0, y0, xi, yj, legal_grid):
-    """
-    Identify shadowed cells in the legal grid.
 
-    Input: 
-    x0: x-coordinate of the kernel origin grid cell (for grid projected)
-    y0: y-coordinate of the kernel origin grid cell (for grid projected)
-    xi: x-coordinates of the kernel
-    yj: y-coordinates of the kernel
-    legal_grid: 2D boolean array with legal cells (true means legal)
-    """
-    shadowed_cells = []
-    for i in xi:
-        for j in yj:
-            cells = bresenham(x0, y0, i, j)
-            for cell in cells:
-                if not legal_grid[cell[0], cell[1]]:
-                    shadowed_cells.append((i,j))
-    return shadowed_cells
 
 
 @jit(nopython=True)
@@ -802,18 +796,12 @@ if __name__ == "__main__":
     adapt_window_size = int(np.clip(integral_length_scale.item(), 5, grid_size/4))
     if adapt_window_size % 2 == 0:
         adapt_window_size += 1 #Make sure it's odd.
-
     adapt_window_size = np.array([adapt_window_size])
 
     # Pad the pilot KDE to avoid edge issues ###
     pad_size = adapt_window_size // 2
     pilot_kde_padded = np.pad(pilot_kde, pad_size, mode='reflect')
     pilot_kde_counts_padded = np.pad(pilot_kde_counts, pad_size, mode='reflect')
-
-    # Calcualte the silverman coefficient
-    kde_dim = 2 #The dimensionality of the KDE
-    silverman_coeff = silverman_coeff = (4/(kde_dim+2))**(1/(kde_dim+4))
-    silverman_exponent = 1/5 
 
     # Threshold for statistical calculations
     stats_threshold = adapt_window_size[0]
