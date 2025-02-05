@@ -25,40 +25,31 @@ def _process_kernels(non_zero_indices, kde_pilot, cell_bandwidths, kernel_bandwi
                     gaussian_kernels, illegal_cells, gridsize_x, gridsize_y):
     
     """
-    Project kernel density estimation onto a 2D grid with optimized memory layout and Numba acceleration.
-    Handles illegal/blocked cells by redistributing their density contribution to surrounding legal cells.
-    Uses pre-computed Gaussian kernels for efficiency and variable bandwidth selection based on pilot estimate.
-    
+    Process kernel density estimation for non-zero pilot KDE values with illegal cell handling.
+
     Parameters
     ----------
-    grid_x : array-like
-        X-coordinates of the grid points
-    grid_y : array-like
-        Y-coordinates of the grid points
+    non_zero_indices : array-like
+        Indices of non-zero values in pilot KDE
     kde_pilot : ndarray
         Pilot kernel density estimate on the grid
-    gaussian_kernels : list of ndarrays
-        Pre-computed Gaussian kernels for different bandwidths
-    kernel_bandwidths : ndarray
-        Bandwidths corresponding to pre-computed kernels
     cell_bandwidths : ndarray
         Bandwidth values for each cell in the grid
-    illegal_cells : ndarray, optional
+    kernel_bandwidths : ndarray
+        Available pre-computed kernel bandwidths
+    gaussian_kernels : list of ndarrays
+        Pre-computed Gaussian kernels for different bandwidths
+    illegal_cells : ndarray
         Boolean mask of illegal/blocked cells (True = blocked)
-        
+    gridsize_x : int
+        Grid size in x dimension
+    gridsize_y : int
+        Grid size in y dimension
+
     Returns
     -------
     ndarray
         Updated kernel density estimate with illegal cell handling
-        
-    Notes
-    -----
-    - Uses contiguous memory layout for performance
-    - Handles illegal cells by redistributing their weights
-    - Optimized with Numba for parallel processing
-    - Only processes non-zero pilot KDE values
-    - Kernel selection based on closest available bandwidth
-    - Memory efficient by processing only required grid cells
     """
     
     n_u = np.zeros((gridsize_x, gridsize_y))
@@ -722,6 +713,7 @@ if __name__ == "__main__":
         trajectories, bw = pdg.create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=380, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
 
         trajectories_test = trajectories[::frac_diff]
+        bw_test = bw[::frac_diff]
         #Normalize the weights
         weights_test = np.ones(len(trajectories_test))*len(trajectories)/len(trajectories_test)
 
@@ -773,7 +765,7 @@ if __name__ == "__main__":
                                                                           trajectories_test[:,1],
                                                                           grid_x,
                                                                           grid_y,
-                                                                          bandwidths=particle_initial_bandwidths,
+                                                                          bandwidths=bw_test,
                                                                           weights = weights_test)
 
     # ###- Gaussian kernels -### #
@@ -824,7 +816,16 @@ if __name__ == "__main__":
                                     h_matrix_adaptive,
                                     illegal_cells=illegal_positions_hollow_ellipse)
 
-    
+
+    #Calculate time dependent bandwidth kernel density estimate
+
+    tdbkde_estimate = grid_proj_kde(grid_x,
+                                    grid_y,
+                                    pilot_kde,
+                                    gaussian_kernels,
+                                    bandwidths_h,
+                                    pilot_kde_bandwidths,
+                                    illegal_cells=illegal_positions_hollow_ellipse)
 
 
     # ------------------------------------------------ #
@@ -851,144 +852,9 @@ if __name__ == "__main__":
             colors_list = ['red', 'black', 'blue']
             n_bins = 100  # Number of color gradations
             cmap2 = colors.LinearSegmentedColormap.from_list("custom", colors_list, N=n_bins)
-            
+           
 
-        ##### PLOT TRAJECTORIES #####
-
-        plt.figure(figsize=(10,5))
-        plt.subplot(1,2,1)
-        plt.plot(trajectories[:,1],trajectories[:,0],'.')
-        plt.title('Full data')
-        plt.subplot(1,2,2)
-        plt.plot(trajectories_test[:,1],trajectories_test[:,0],'.')
-        plt.title('Test data')
-        plt.show()
-
-        ##### PLOT RESULTS AND RESIDUALS #####
-
-        # Create figure with 4x2 layout
-        fig = plt.figure(figsize=(20, 10))
-        gs = fig.add_gridspec(2, 4, hspace=0.3)
-
-        # Find common color range for density plots
-        vmin = 0
-        vmax = np.max(ground_truth)
-        levels = np.linspace(vmin, vmax, 100)
-
-        # Top row - density plots
-        ax1 = fig.add_subplot(gs[0, 0])
-        ax2 = fig.add_subplot(gs[0, 1])
-        ax3 = fig.add_subplot(gs[0, 2])
-        ax4 = fig.add_subplot(gs[0, 3])
-        
-        # AKDE plot
-        pcm1 = ax1.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax1.contour(grid_x, grid_y, akde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)
-        #plot illegal cells using patch
-        for i in range(grid_size):
-            for j in range(grid_size):
-                if illegal_positions[i,j]:
-                    plt.gca().add_patch(plt.Rectangle((j-0.5, i-0.5), 1, 1, fill=True, color='grey', alpha=0.2))
-        ax1.set_xlim([0, 100])
-        ax1.set_ylim([0, 100])
-        ax1.set_title('Adaptive KDE')
-
-        # HE plot
-        ax2.pcolor(grid_x, grid_y, pilot_kde, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax2.contour(grid_x, grid_y, pilot_kde, levels[::2], colors='white',linewidths=0.2,alpha=0.5)   
-        ax2.set_xlim([0, 100])
-        ax2.set_ylim([0, 100])
-        ax2.set_title('Histogram Estimate')
-
-        # Silverman KDE plot
-        ax3.pcolor(grid_x, grid_y, kde_silverman_naive, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax3.contour(grid_x, grid_y, kde_silverman_naive, levels[::2], colors='white',linewidths=0.2,alpha=0.5) 
-        ax3.set_xlim([0, 100])
-        ax3.set_ylim([0, 100])
-        ax3.set_title('Silverman KDE')
-
-        # GT plot
-        ax4.pcolor(grid_x, grid_y, ground_truth, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax4.contour(grid_x, grid_y, ground_truth, levels[::2], colors='white',linewidths=0.2,alpha=0.5)    
-        ax4.set_xlim([0, 100])
-        ax4.set_ylim([0, 100])
-        ax4.set_title('Ground Truth')
-
-        # Add density colorbar
-        cbar1 = fig.colorbar(pcm1, ax=[ax1, ax2, ax3, ax4], label='Density')
-
-        # Bottom row - residual plots and statistics
-        ax5 = fig.add_subplot(gs[1, 0])
-        ax6 = fig.add_subplot(gs[1, 1])
-        ax7 = fig.add_subplot(gs[1, 2])
-        ax8 = fig.add_subplot(gs[1, 3])
-
-        # Compute residuals
-        akde_residuals = akde_estimate - ground_truth
-        he_residuals = pilot_kde - ground_truth
-        silverman_residuals = kde_silverman_naive - ground_truth
-
-        # Find common residual color range
-        res_max = max(abs(akde_residuals).max(), abs(he_residuals).max(), abs(silverman_residuals).max())/1.5
-        res_min = -res_max
-
-        # Use in plotting
-        pcm2 = ax5.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
-
-        # Plot residuals
-        pcm2 = ax5.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
-        ax5.set_title('AKDE Residuals')
-
-        ax6.pcolor(grid_x, grid_y, he_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
-        ax6.set_title('HE Residuals')
-
-        ax7.pcolor(grid_x, grid_y, silverman_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
-        ax7.set_title('Silverman Residuals')
-
-        # Add residuals colorbar
-        cbar2 = fig.colorbar(pcm2, ax=[ax5, ax6, ax7], label='Residuals',extend='both')
-
-        # Calculate R² scores
-        r2_akde = np.corrcoef(ground_truth.flatten(), akde_estimate.flatten())[0, 1]**2 #R² score for AKDE
-        r2_he = np.corrcoef(ground_truth.flatten(), pilot_kde.flatten())[0, 1]**2 #R² score for HE
-        r2_silverman = np.corrcoef(ground_truth.flatten(), kde_silverman_naive.flatten())[0, 1]**2 #R² score for Silverman  
-
-        # Calculate max values
-        max_akde = np.max(akde_estimate)
-        max_he = np.max(pilot_kde)
-        max_silverman = np.max(kde_silverman_naive)
-        max_gt = np.max(ground_truth)
-
-        # Calculate total sums (field integral)
-        sum_akde = np.sum(akde_estimate)
-        sum_he = np.sum(pilot_kde)
-        sum_silverman = np.sum(kde_silverman_naive)
-        sum_gt = np.sum(ground_truth)
-
-        # Create textbox with all metrics
-        r2_text = (f'R² Scores:\n'
-                f'AKDE: {r2_akde:.4f}\n'
-                f'HE: {r2_he:.4f}\n'
-                f'Naive silverman: {r2_silverman:.4f}\n\n'
-                f'Maximum Values:\n'
-                f'AKDE: {max_akde:.4f}\n'
-                f'HE: {max_he:.4f}\n'
-                f'Silverman: {max_silverman:.4f}\n'
-                f'Ground Truth: {max_gt:.4f}\n\n'
-                f'Field Integrals:\n'
-                f'AKDE: {sum_akde:.4f}\n'
-                f'HE: {sum_he:.4f}\n'
-                f'Silverman: {sum_silverman:.4f}\n'
-                f'Ground Truth: {sum_gt:.4f}')
-
-        ax8.text(-0.2, 0.2, r2_text, fontsize=12, bbox=dict(facecolor='white', alpha=0.0))
-        ax8.axis('off')
-
-        plt.show()
-
-
-
-        ########## PLOTTING HISTOGRAMS ##########
+        ########## PLOTTING HISTOGRAMS OF H-RELATED STUFF ##########
 
         fig, axs = plt.subplots(2, 2, figsize=(10, 10))
         #HISTOGRAM PLOTS!!
@@ -1006,36 +872,313 @@ if __name__ == "__main__":
 
         plt.show()
 
+        #########################
+        ### PLOTTING THE DATA ###
+        #########################
+
+        # Create figure with 4x2 layout
+        fig = plt.figure(figsize=(20, 10),dpi=300)
+        gs = fig.add_gridspec(2, 4, hspace=0.3)
+
+        # Find common color range for density plots
+        vmin = 0
+        vmax = np.max(ground_truth)
+        levels = np.linspace(vmin, vmax, 100)
+
+        # Top row - density plots
+        ax1 = fig.add_subplot(gs[0, 0])
+        ax2 = fig.add_subplot(gs[0, 1])
+        ax3 = fig.add_subplot(gs[0, 2])
+        ax4 = fig.add_subplot(gs[0, 3])
+
+        illegal_transparancy = 0.25
+        
+        # AKDE plot
+        pcm1 = ax4.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
+        ax4.contour(grid_x, grid_y, akde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)
+        #plot illegal cells using patch
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if illegal_positions[i,j]:
+                    ax4.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
+                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0))
+        ax4.set_xlim([0, 100])
+        ax4.set_ylim([0, 100])
+        #remove the y-axis to save space
+        ax4.set_yticks([])
+        ax4.set_xticks([])
+        ax4.set_title('Adaptive KDE')
+        #remove whitespace between subplots
+        plt.subplots_adjust(wspace=0.1)
+
+        # HE plot
+        ax1.pcolor(grid_x, grid_y, pilot_kde, vmin=vmin, vmax=vmax,cmap=cmap1)
+        ax1.contour(grid_x, grid_y, pilot_kde, levels[::2], colors='white',linewidths=0.2,alpha=0.5)   
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if illegal_positions[i,j]:
+                    ax1.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
+                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0)) 
+        ax1.set_xlim([0, 100])
+        ax1.set_ylim([0, 100])
+        ax1.set_xticks([])
+        ax1.set_title('Histogram Estimate')
+
+        # Silverman KDE plot
+        ax2.pcolor(grid_x, grid_y, kde_silverman_naive, vmin=vmin, vmax=vmax,cmap=cmap1)
+        ax2.contour(grid_x, grid_y, kde_silverman_naive, levels[::2], colors='white',linewidths=0.2,alpha=0.5) 
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if illegal_positions[i,j]:
+                    ax2.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
+                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0))
+        ax2.set_xlim([0, 100])
+        ax2.set_ylim([0, 100])
+        ax2.set_yticks([])
+        ax2.set_xticks([])
+        ax2.set_title('Silverman KDE')
+
+        # GT plot
+        ax3.pcolor(grid_x, grid_y, tdbkde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
+        ax3.contour(grid_x, grid_y, tdbkde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)    
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if illegal_positions[i,j]:
+                    ax3.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
+                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0))
+        ax3.set_xlim([0, 100])
+        ax3.set_ylim([0, 100])
+        ax3.set_yticks([])
+        ax3.set_xticks([])
+        #set fontsizes
+
+        ax3.set_title('Time dependent h KDE')
+
+        # Add density colorbar
+        cbar1 = fig.colorbar(pcm1, ax=[ax1, ax2, ax3, ax4], label='Density',pad=0.01)
+        #move the colorbar closer to the plots to save space
+        cbar1.formatter.set_powerlimits((0, 0))
+        cbar1.ax.yaxis.offsetText.set_fontsize(15)
+        cbar1.update_ticks()
+        cbar1.ax.tick_params(labelsize=12)
+
+        # Bottom row - residual plots and statistics
+        ax5 = fig.add_subplot(gs[1, 0])
+        ax6 = fig.add_subplot(gs[1, 1])
+        ax7 = fig.add_subplot(gs[1, 2])
+        ax8 = fig.add_subplot(gs[1, 3])
+
+        #################
+        ### RESIDUALS ###
+        #################
+
+        # Compute residuals
+        akde_residuals = akde_estimate - ground_truth
+        he_residuals = pilot_kde - ground_truth
+        silverman_residuals = kde_silverman_naive - ground_truth
+        tdbkde_residuals = tdbkde_estimate - ground_truth
+
+        # total absolute residuals
+        total_res_akde = np.sum(np.abs(akde_residuals))
+        total_res_he = np.sum(np.abs(he_residuals))
+        total_res_silverman = np.sum(np.abs(silverman_residuals))
+        total_res_tdbkde = np.sum(np.abs(tdbkde_residuals))
+
+        #and max
+        max_res_akde = np.max(np.abs(akde_residuals))
+        max_res_he = np.max(np.abs(he_residuals))
+        max_res_silverman = np.max(np.abs(silverman_residuals))
+        max_res_tdbkde = np.max(np.abs(tdbkde_residuals))
+
+        # Find common residual color range
+        res_max = max(abs(akde_residuals).max(), abs(he_residuals).max(), abs(silverman_residuals).max())/1.5
+        res_min = -res_max
+
+        # Plot residuals
+        pcm2 = ax8.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
+        #set th esame axes limits
+        ax8.set_xlim([0, 100])
+        ax8.set_ylim([0, 100])
+        ax8.set_yticks([])
+        ax8.set_title('AKDE Residuals')
+
+        ax5.pcolor(grid_x, grid_y, he_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
+        ax5.set_xlim([0, 100])
+        ax5.set_ylim([0, 100])
+        ax5.set_title('HE Residuals')
+
+        ax6.pcolor(grid_x, grid_y, silverman_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
+        ax6.set_xlim([0, 100])
+        ax6.set_ylim([0, 100])
+        ax6.set_yticks([])
+        ax6.set_title('Silverman Residuals')
+
+        ax7.pcolor(grid_x, grid_y, tdbkde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
+        ax7.set_xlim([0, 100])
+        ax7.set_ylim([0, 100])
+        ax7.set_yticks([])
+        ax7.set_title('Time dep. h Residuals')
+
+        # Add residuals colorbar
+        cbar2 = fig.colorbar(pcm2, ax=[ax5, ax6, ax7, ax8], label='Residuals',extend='both',
+                                pad=0.01)
+        #use scientific notation on the colorbar to save space
+        cbar2.formatter.set_powerlimits((0, 0))
+        cbar2.ax.yaxis.offsetText.set_fontsize(15)
+        cbar2.update_ticks()
+        #set fontsize of the ticks
+        cbar2.ax.tick_params(labelsize=12)
+
+        # Calculate and include R² scores as textboxes in the plots
+        r2_akde = np.corrcoef(ground_truth.flatten(), akde_estimate.flatten())[0, 1]**2 #R² score for AKDE
+        r2_he = np.corrcoef(ground_truth.flatten(), pilot_kde.flatten())[0, 1]**2 #R² score for HE
+        r2_silverman = np.corrcoef(ground_truth.flatten(), kde_silverman_naive.flatten())[0, 1]**2 #R² score for Silverman  
+        r2_tdbkde = np.corrcoef(ground_truth.flatten(), tdbkde_estimate.flatten())[0, 1]**2 #R² score for Time dependent h KDE  
+
+        # Calculate max values
+        max_akde = np.max(akde_estimate)
+        max_he = np.max(pilot_kde)
+        max_silverman = np.max(kde_silverman_naive)
+        max_gt = np.max(ground_truth)
+        max_tdbkde = np.max(tdbkde_estimate)
+
+        # Calculate total sums (field integral)
+        sum_akde = np.sum(akde_estimate)
+        sum_he = np.sum(pilot_kde)
+        sum_silverman = np.sum(kde_silverman_naive)
+        sum_gt = np.sum(ground_truth)
+        sum_tdbkde = np.sum(tdbkde_estimate)
+
+        #Include information in the residual plots by making a textbox in the upper left corner
+        #of the respective residual plot
+        textbox_text = (f'R² = {r2_akde:.2f}\n'
+                        f'Max = {max_res_akde:.0f}\n'
+                        f'Sum = {total_res_akde:.0f}')
+        ax8.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')
+    #        ax8.axis('off')
+
+        textbox_text = (f'R² = {r2_he:.2f}\n'
+                        f'Max = {max_res_he:.0f}\n'
+                        f'Sum = {total_res_he:.0f}')
+        ax5.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')
+    #        ax5.axis('off')
+
+        textbox_text = (f'R² = {r2_silverman:.2f}\n'
+                        f'Max = {max_res_silverman:.0f}\n'
+                        f'Sum = {total_res_silverman:.0f}')
+        ax6.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')
+
+        textbox_text = (f'R² = {r2_tdbkde:.2f}\n'
+                        f'Max = {max_res_tdbkde:.0f}\n'
+                        f'Sum = {total_res_tdbkde:.0f}')
+        ax7.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top') 
+        
+        #add similar boxes to the density plots with the max and sum values
+        textbox_text = (f'Max = {max_akde:.0f}\n'
+                        f'Sum = {sum_akde:.0f}')
+        ax4.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')   
+
+        textbox_text = (f'Max = {max_he:.0f}\n'
+                        f'Sum = {sum_he:.0f}')
+        ax1.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')
+
+        textbox_text = (f'Max = {max_silverman:.0f}\n'
+                        f'Sum = {sum_silverman:.0f}')
+        ax2.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')    
+        
+        textbox_text = (f'Max = {max_tdbkde:.0f}\n'
+                        f'Sum = {sum_tdbkde:.0f}')
+        ax3.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')
+                
+        
+        #set fontsize globally for the whole figure
+        for ax in fig.get_axes():
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                            ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(15)
+                    
+        #set tight layout for everything
+        plt.tight_layout()
+
+        plt.show()
+
+
+        ##########################################
+        ### PLOTTING THE DATA AND GROUND TRUTH ###
+        ##########################################
+
+        fig = plt.figure(figsize=(10, 5),dpi=300)
+        gs = fig.add_gridspec(1, 2, width_ratios=[1, 1.2])  # Second plot slightly wider for colorbar
+        axs = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
+        color2 = '#1f3b4d'
+        color1 = '#c79fef'
+        axs[0].scatter(trajectories[:,1],trajectories[:,0],s=0.1,c = color1,label=f'Full data, N={len(trajectories)}')
+        #plot the test data on top
+        axs[0].scatter(trajectories_test[:,1],trajectories_test[:,0],s=0.1,c=color2, label=f'Test data, N={len(trajectories_test)}')
+        #add the patch of the illegal region
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if illegal_positions[i,j]:
+                    axs[0].add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
+                                                alpha=0.5, edgecolor='none', linewidth=0))
+        axs[0].set_title('Full data')
+        #add legend, with N=number of particles in the test data
+        axs[0].legend(loc='lower right',fontsize=15)
+        axs[0].set_xlim([0, 100])
+        axs[0].set_ylim([0, 100])
+        #make this plot a bit narrower so it has same size as the colorplot
+        pcm = axs[1].pcolor(grid_x, grid_y, ground_truth, cmap='plasma')
+        axs[1].contour(grid_x, grid_y, ground_truth, levels[::2], colors='white',linewidths=0.2,alpha=0.5)  
+        axs[1].set_title('Ground truth')
+        axs[1].set_xlim([0, 100])
+        axs[1].set_ylim([0, 100])
+        axs[1].set_yticks([])
+        #add the patch of the illegal region
+        for i in range(grid_size):
+            for j in range(grid_size):
+                if illegal_positions[i,j]:
+                    axs[1].add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
+                                                alpha=0.5, edgecolor='none', linewidth=0))
+        cbar3 = fig.colorbar(pcm, ax=axs[1], label='Density')
+        #make ticks on colorbar axis in scientific notation to save space
+        cbar3.formatter.set_powerlimits((0, 0))
+        cbar3.ax.yaxis.offsetText.set_fontsize(15) 
+        cbar3.update_ticks()
+        #increase fontsize of all ticks in the plot globally
+        for ax in fig.get_axes():
+            for item in ([ax.title, ax.xaxis.label, ax.yaxis.label] +
+                            ax.get_xticklabels() + ax.get_yticklabels()):
+                item.set_fontsize(15)
+        #adjust the size of the plots such that they have the same size even though the
+        #ground truth plot has a colorbar
+
+        #add textbox with max and sum values
+        max_gt = np.max(ground_truth)
+        sum_gt = np.sum(ground_truth)
+
+        textbox_text = (f'Max = {max_gt:.0f}\n'
+                        f'Sum = {sum_gt:.0f}')
+        
+        axs[1].text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
+                    horizontalalignment='left', verticalalignment='top')
+
+
+
+        plt.subplots_adjust(wspace=0.3)
+        
+        plt.tight_layout()
+        plt.show()
+        
+
+
     time_end = time.time()
 
     print('Time elapsed: ', time_end-time_start)
-
-
-    ########### TESTING ###########
-    testing = False
-    if testing == True:
-        #RUN SIMPLE TEST WITH 1 KERNEL
-        #craete a dataset with only 1 particle located at 60,60 and a bandwidth of 1.0
-        test_data = np.array([[28,73]])
-        test_bw = np.array([7])
-        test_weights = np.array([1.0])
-        #use the same grid as the pilot KDE
-        grid_x = np.arange(0, 100, 1)
-        grid_y = np.arange(0, 100, 1)
-
-
-        #create the pilot KDE
-        pilot_kde_weight,pilot_kde_count,pilot_kde_average_bandwidth = histogram_estimator(test_data[:,0], test_data[:,1], grid_x, grid_y, test_bw, test_weights)
-        kde = grid_proj_kde(grid_x, grid_y, pilot_kde_weight, gaussian_kernels, bandwidths_h  ,pilot_kde_average_bandwidth , illegal_cells=illegal_cells[:100,:100])  
-
-
-        plt.figure()
-        plt.imshow(kde)#, cmap=cmap1)
-        #draw patch for the illegal cells
-        #plt.imshow(illegal_positions_hollow_ellipse[:100,:100], cmap='gray', alpha=0.2)
-        #add patch of the hollow ellipse
-        for i in range(100):
-            for j in range(100):
-                if illegal_positions_hollow_ellipse[i,j]:
-                    plt.gca().add_patch(plt.Rectangle((j-0.5, i-0.5), 1, 1, fill=True, color='grey', alpha=0.2))
-
