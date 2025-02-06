@@ -1,0 +1,8 @@
+LICENSE
+README.md
+setup.py
+src/akd_estimator.egg-info/PKG-INFO
+src/akd_estimator.egg-info/SOURCES.txt
+src/akd_estimator.egg-info/dependency_links.txt
+src/akd_estimator.egg-info/requires.txt
+src/akd_estimator.egg-info/top_level.txt

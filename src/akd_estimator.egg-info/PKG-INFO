@@ -1,0 +1,7 @@
+Metadata-Version: 2.1
+Name: akd_estimator
+Version: 0.1.0
+License-File: LICENSE
+Requires-Dist: numpy
+Requires-Dist: scipy
+Requires-Dist: numba
