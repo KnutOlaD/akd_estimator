@@ -272,7 +272,7 @@ def compute_adaptive_bandwidths(preGRID_active_padded,
                 if data_subset[pad_size,pad_size] == 0:
                     continue
                 
-                # Protect against zero division in normalization (this is normalizastion to 1)
+                # Protect against zero division in normalization (this is normalization to 1)
 
                 ### SOME NORMALIZATION STUFF NEEDS TO GO HERE SOMEWHERE ###
                 total_weighted_sum = np.sum(data_subset)
@@ -291,7 +291,7 @@ def compute_adaptive_bandwidths(preGRID_active_padded,
                     integral_length_scale = window_size/2 #One dimensional integral length scale assuming L is np.sqrt(total_weighted_sum)
                     n_eff = np.sum(data_subset)/window_size #One dimensional effective sample size assuming L is np.sqrt(total_weighted_sum)
                 else:
-                    std = max(histogram_std(data_subset, None, 1), 1e-10)
+                    std = max(histogram_std(data_subset, None, bin_size = grid_cell_size), 1e-10)
                     autocorr_rows, autocorr_cols = calculate_autocorrelation(data_subset)
                     autocorr = (autocorr_rows + autocorr_cols) / 2
                     
@@ -464,7 +464,8 @@ def histogram_std(binned_data, effective_samples=None, bin_size=1):
     '''
     #Calculate the effective number of particles using Kish's formula. (for weighted data)
     if effective_samples == None:
-        effective_samples = np.sum(binned_data)**2/np.sum(binned_data**2) #This is Kish's formula
+        effective_samples = np.sum(binned_data)**2/np.sum(binned_data**2) #This is Kish's formula, it's formualted 
+        # a bit differently in the paper and not referred to as Kish's formula to avoid clunky notation there. 
 
     # Check that there's data in the binned data
     if np.sum(binned_data) == 0:
@@ -481,13 +482,14 @@ def histogram_std(binned_data, effective_samples=None, bin_size=1):
     mu_y = np.sum(binned_data * Y) / sum_data
     
     #Sheppards correction term
-    sheppard = (1/12)*bin_size*bin_size #weighted data
+    sheppard = (1/12)#*bin_size*bin_size #weighted data
 
     #variance = (np.sum(binned_data*((X-mu_x)**2+(Y-mu_y)**2))/(sum_data-1))-2/12*bin_size*bin_size
 
     #Do Bessel correction for weighted binned data using Kish's formula and add Sheppards correction
     variance = (np.sum(binned_data * ((X - mu_x)**2 + (Y - mu_y)**2)) / sum_data) * \
             (1/(1 - 1/max(effective_samples,1.0000001))) - sheppard #Sheppards correction
+    #This is now correct with respect to KISH, but only because its 1/effective_samples. It's a bit of discrep
     #sheppards: https://towardsdatascience.com/on-the-statistical-analysis-of-rounded-or-binned-data-e24147a12fa0
     
     return np.sqrt(variance)
@@ -674,30 +676,30 @@ if __name__ == "__main__":
 
     time_start = time.time()
 
-    create_data = True
+    create_data = False
     do_plotting = True
 
     frac_diff = 1000 #pick every 1000th particle for the test data
-    grid_size = 120
-    grid_size_plot = 100
-    grid_x = np.linspace(0, grid_size, grid_size)
-    grid_y = np.linspace(0, grid_size, grid_size)
+    grid_size = 60
+    grid_size_physical = 120
+    grid_size_plot = int(grid_size_physical/grid_size)
+    grid_x = np.linspace(0, grid_size_physical, grid_size)
+    grid_y = np.linspace(0, grid_size_physical, grid_size)
     
     if create_data == True:
 
         #Define illegal grid cells
-        illegal_cells = np.zeros((grid_size,grid_size))
+        illegal_cells = np.zeros((len(grid_x),len(grid_y)))
         #illegal_cells[55:65,70:85] = 1
 
         a = 40
         b = 25
         x0 = 55
         y0 = 95
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(len(grid_x)):
+            for j in range(len(grid_y)):
                 if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
                     illegal_cells[i,j] = 1
-
 
         illegal_positions = illegal_cells.astype(bool)
 
@@ -708,8 +710,8 @@ if __name__ == "__main__":
         b = 25-5
         x0 = 55
         y0 = 95
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(len(grid_x)):
+            for j in range(len(grid_y)):
                 if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
                     illegal_hollow_ellipse[i,j] = 0
 
@@ -722,8 +724,6 @@ if __name__ == "__main__":
         bw_test = bw[::frac_diff]
         #Normalize the weights
         weights_test = np.ones(len(trajectories_test))*len(trajectories)/len(trajectories_test)
-
-
 
     #Create histogram estimate
     ground_truth, particle_count, cell_bandwidth = histogram_estimator(trajectories[:,0],trajectories[:,1],grid_x,grid_y,bandwidths=bw,weights=np.ones(len(trajectories)))
@@ -739,8 +739,8 @@ if __name__ == "__main__":
 
     kde = gaussian_kde(trajectories_test[~np.isnan(trajectories_test).any(axis=1)].T, 
                        bw_method='silverman')
-    x = np.linspace(0, 120, 120)
-    y = np.linspace(0, 120, 120)
+    x = np.linspace(0, grid_size_physical, grid_size)
+    y = np.linspace(0, grid_size_physical, grid_size)
     X, Y = np.meshgrid(x, y)
     Z = kde(np.vstack([X.flatten(), Y.flatten()])).reshape(X.shape)
     kde_silverman_naive = Z* np.mean(weights_test) * len(trajectories_test)
@@ -774,6 +774,8 @@ if __name__ == "__main__":
                                                                           bandwidths=bw_test,
                                                                           weights = weights_test)
 
+
+
     # ###- Gaussian kernels -### #
 
     num_kernels = 20 #This is the number of kernels to use
@@ -781,12 +783,12 @@ if __name__ == "__main__":
 
     # Generate 20 kernels with bandwidths from 1/3 to 20/3 and support from 1 to 20
     gaussian_kernels, bandwidths_h = generate_gaussian_kernels(num_kernels, 
-                                                               ratio) 
-
+                                                               ratio)
+    bandwidths_h = bandwidths_h* grid_size_physical / grid_size #Scale the bandwidths to the grid size
+    
 
 
     # ###- Bandwidth h estimation -### #
-
 
     # Calculate integral length scale of the whole field to get rough size of adaptation window 
     autocorr_rows,autocorr_cols = calculate_autocorrelation(pilot_kde) #Calculate the autocorrelation along rows and columns
@@ -810,8 +812,17 @@ if __name__ == "__main__":
     # Compute statistics and bandwidths
     std_estimate, N_eff, integral_length_scale_matrix, h_matrix_adaptive = compute_adaptive_bandwidths(
                         pilot_kde_padded, pilot_kde_counts_padded,
-                        adapt_window_size[0], stats_threshold
-                    )
+                        adapt_window_size[0], stats_threshold, 
+                        grid_cell_size=grid_size_physical/grid_size) 
+
+    #interpolate the illegal position matrix onto the grid_size grid using grid_size_physical as the reference
+    illegal_positions_hollow_ellipse = np.zeros((grid_size,grid_size))
+    for i in range(grid_size):
+        for j in range(grid_size):
+            x = i * grid_size_physical / grid_size
+            y = j * grid_size_physical / grid_size
+            illegal_positions_hollow_ellipse[i,j] = illegal_hollow_ellipse[int(x),int(y)]
+    
 
     # ###- Do the KDE estimate -### #
     akde_estimate = grid_proj_kde(grid_x,
@@ -903,13 +914,13 @@ if __name__ == "__main__":
         pcm1 = ax4.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax4.contour(grid_x, grid_y, akde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)
         #plot illegal cells using patch
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(np.shape(illegal_positions)[0]):
+            for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
                     ax4.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
                                                 alpha=illegal_transparancy, edgecolor='none', linewidth=0))
-        ax4.set_xlim([0, 100])
-        ax4.set_ylim([0, 100])
+        ax4.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax4.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         #remove the y-axis to save space
         ax4.set_yticks([])
         ax4.set_xticks([])
@@ -920,26 +931,26 @@ if __name__ == "__main__":
         # HE plot
         ax1.pcolor(grid_x, grid_y, pilot_kde, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax1.contour(grid_x, grid_y, pilot_kde, levels[::2], colors='white',linewidths=0.2,alpha=0.5)   
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(np.shape(illegal_positions)[0]):
+            for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
                     ax1.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
                                                 alpha=illegal_transparancy, edgecolor='none', linewidth=0)) 
-        ax1.set_xlim([0, 100])
-        ax1.set_ylim([0, 100])
+        ax1.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax1.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax1.set_xticks([])
         ax1.set_title('Histogram Estimate')
 
         # Silverman KDE plot
         ax2.pcolor(grid_x, grid_y, kde_silverman_naive, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax2.contour(grid_x, grid_y, kde_silverman_naive, levels[::2], colors='white',linewidths=0.2,alpha=0.5) 
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(np.shape(illegal_positions)[0]):
+            for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
                     ax2.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
                                                 alpha=illegal_transparancy, edgecolor='none', linewidth=0))
-        ax2.set_xlim([0, 100])
-        ax2.set_ylim([0, 100])
+        ax2.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax2.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax2.set_yticks([])
         ax2.set_xticks([])
         ax2.set_title('Silverman KDE')
@@ -947,13 +958,13 @@ if __name__ == "__main__":
         # GT plot
         ax3.pcolor(grid_x, grid_y, tdbkde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
         ax3.contour(grid_x, grid_y, tdbkde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)    
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(np.shape(illegal_positions)[0]):
+            for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
                     ax3.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
                                                 alpha=illegal_transparancy, edgecolor='none', linewidth=0))
-        ax3.set_xlim([0, 100])
-        ax3.set_ylim([0, 100])
+        ax3.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax3.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax3.set_yticks([])
         ax3.set_xticks([])
         #set fontsizes
@@ -1003,25 +1014,25 @@ if __name__ == "__main__":
         # Plot residuals
         pcm2 = ax8.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
         #set th esame axes limits
-        ax8.set_xlim([0, 100])
-        ax8.set_ylim([0, 100])
+        ax8.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax8.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax8.set_yticks([])
         ax8.set_title('AKDE Residuals')
 
         ax5.pcolor(grid_x, grid_y, he_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
-        ax5.set_xlim([0, 100])
-        ax5.set_ylim([0, 100])
+        ax5.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax5.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax5.set_title('HE Residuals')
 
         ax6.pcolor(grid_x, grid_y, silverman_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
-        ax6.set_xlim([0, 100])
-        ax6.set_ylim([0, 100])
+        ax6.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax6.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax6.set_yticks([])
         ax6.set_title('Silverman Residuals')
 
         ax7.pcolor(grid_x, grid_y, tdbkde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
-        ax7.set_xlim([0, 100])
-        ax7.set_ylim([0, 100])
+        ax7.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
+        ax7.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax7.set_yticks([])
         ax7.set_title('Time dep. h Residuals')
 
@@ -1130,8 +1141,8 @@ if __name__ == "__main__":
         #plot the test data on top
         axs[0].scatter(trajectories_test[:,1],trajectories_test[:,0],s=0.1,c=color2, label=f'Test data, N={len(trajectories_test)}')
         #add the patch of the illegal region
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(np.shape(illegal_positions)[0]):
+            for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
                     axs[0].add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
                                                 alpha=0.5, edgecolor='none', linewidth=0))
@@ -1148,8 +1159,8 @@ if __name__ == "__main__":
         axs[1].set_ylim([0, 100])
         axs[1].set_yticks([])
         #add the patch of the illegal region
-        for i in range(grid_size):
-            for j in range(grid_size):
+        for i in range(np.shape(illegal_positions)[0]):
+            for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
                     axs[1].add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
                                                 alpha=0.5, edgecolor='none', linewidth=0))
