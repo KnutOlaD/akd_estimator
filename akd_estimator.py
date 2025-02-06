@@ -351,6 +351,12 @@ def histogram_estimator(x_pos, y_pos, grid_x, grid_y, bandwidths=None, weights=N
     grid_size_x = len(grid_x)
     grid_size_y = len(grid_y)
 
+    # Handle defaults
+    if weights is None:
+        weights = np.ones_like(x_pos)
+    if bandwidths is None:
+        bandwidths = np.ones_like(x_pos)
+
     # Initialize the histograms
     particle_count = np.zeros((grid_size_x, grid_size_y), dtype=np.int32)
     total_weight = np.zeros((grid_size_x, grid_size_y), dtype=np.float64)
