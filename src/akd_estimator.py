@@ -286,10 +286,10 @@ def compute_adaptive_bandwidths(preGRID_active_padded,
                 
                 # Process statistics with zero protection
                 total_counts = np.sum(subset_counts) #Alternative if the number of particles is very low. 
-                if total_counts < stats_threshold:
-                    std = window_size/4 #np.sqrt(total_weighted_sum) represents the P
+                if total_counts < stats_threshold: #This is fallback values:
+                    std = (window_size/4)*grid_cell_size #np.sqrt(total_weighted_sum) represents the P
                     integral_length_scale = window_size/2 #One dimensional integral length scale assuming L is np.sqrt(total_weighted_sum)
-                    n_eff = np.sum(data_subset)/window_size #One dimensional effective sample size assuming L is np.sqrt(total_weighted_sum)
+                    n_eff = np.sum(data_subset)/(0.5*window_size)  #One dimensional effective sample size assuming L is np.sqrt(total_weighted_sum)
                 else:
                     std = max(histogram_std(data_subset, None, bin_size = grid_cell_size), 1e-10)
                     autocorr_rows, autocorr_cols = calculate_autocorrelation(data_subset)
@@ -482,7 +482,8 @@ def histogram_std(binned_data, effective_samples=None, bin_size=1):
     mu_y = np.sum(binned_data * Y) / sum_data
     
     #Sheppards correction term
-    sheppard = (1/12)#*bin_size*bin_size #weighted data
+    sheppard = (1/12)*bin_size*bin_size #weighted data. 
+    #I'm pretty sure this should be scaled............ 
 
     #variance = (np.sum(binned_data*((X-mu_x)**2+(Y-mu_y)**2))/(sum_data-1))-2/12*bin_size*bin_size
 
@@ -676,7 +677,7 @@ if __name__ == "__main__":
 
     time_start = time.time()
 
-    create_data = False
+    create_data = True
     do_plotting = True
 
     frac_diff = 1000 #pick every 1000th particle for the test data
