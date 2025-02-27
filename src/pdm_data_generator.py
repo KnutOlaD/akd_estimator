@@ -47,6 +47,75 @@ def update_positions(particles, U_a, stdev, dt):
     #particles = np.mod(particles, grid_size)
     return particles
 
+def update_positions(particles, U_field, stdev, dt):
+    """Update particle positions using interpolated velocity field."""
+    new_positions = particles.copy()
+    
+    for i in range(len(particles)):
+        if not np.any(np.isnan(particles[i])):
+            velocity = U_field[int(particles[i][1]), int(particles[i][0])]
+            advective_displacement = velocity * dt
+            stochastic_displacement = np.random.normal(0, stdev, 2) * np.sqrt(dt)
+            new_positions[i] += advective_displacement + stochastic_displacement
+    
+    return new_positions
+
+def create_2d_velocity_field(grid_size):
+    """Create a 2D velocity field that varies in space and time.
+    
+    Returns
+    -------
+    U_field : ndarray
+        Array of shape (time_steps, grid_size, grid_size, 2) containing
+        velocity vectors [u, v] for each grid point and time
+    """
+    x = np.linspace(0, 2*np.pi, grid_size)
+    y = np.linspace(0, 2*np.pi, grid_size)
+    X, Y = np.meshgrid(x, y)
+    
+    U_field = np.zeros((grid_size, grid_size, 2))
+    
+    # Create spatially varying velocity field
+    # U component (x direction)
+    U_field[:, :, 0] = 2 + np.sin(X/2 + 50) * np.cos(Y/2)
+    # V component (y direction)
+    U_field[:, :, 1] = 1 + np.cos(X/2) * np.sin(Y/2 + 50)
+    
+    # Normalize to maintain constant magnitude
+    magnitude = np.sqrt(U_field[:, :, 0]**2 + U_field[:, :, 1]**2)
+    U_field[:, :, 0] /= magnitude
+    U_field[:, :, 1] /= magnitude
+    
+    # Scale to desired magnitude
+    U_field *= 5  # Same magnitude as original
+    
+    return U_field
+
+def get_velocity_at_position(position, U_field, grid_size):
+    """Get interpolated velocity at particle position."""
+    x, y = position
+    
+    # Convert position to grid indices
+    x_idx = np.clip(int(x), 0, grid_size-2)
+    y_idx = np.clip(int(y), 0, grid_size-2)
+    
+    # Get fractional position within grid cell
+    dx = x - x_idx
+    dy = y - y_idx
+    
+    # Bilinear interpolation
+    v00 = U_field[y_idx, x_idx]
+    v10 = U_field[y_idx+1, x_idx]
+    v01 = U_field[y_idx, x_idx+1]
+    v11 = U_field[y_idx+1, x_idx+1]
+    
+    velocity = (v00 * (1-dx)*(1-dy) + 
+               v10 * (1-dx)*dy + 
+               v01 * dx*(1-dy) + 
+               v11 * dx*dy)
+    
+    return velocity
+
 def create_test_data(stdev=1.4, 
                      num_particles_per_timestep=5000, 
                      time_steps=380, 
@@ -159,6 +228,40 @@ def create_test_data(stdev=1.4,
         # bw[bw > 20] = 20
 
     return trajectories, bw
+
+def plot_velocity_field(U_field, trajectories=None, skip=5):
+    """Plot velocity field with optional particle positions."""
+    plt.figure(figsize=(10, 10))
+    
+    # Create grid for quiver plot
+    x = np.arange(0, U_field.shape[1])
+    y = np.arange(0, U_field.shape[0])
+    X, Y = np.meshgrid(x, y)
+    
+    # Plot velocity field
+    plt.quiver(X[::skip, ::skip], Y[::skip, ::skip],
+              U_field[::skip, ::skip, 0], U_field[::skip, ::skip, 1],
+              scale=50)
+    
+    # Plot particles if provided
+    if trajectories is not None:
+        valid_particles = ~np.isnan(trajectories[:, 0])
+        plt.scatter(trajectories[valid_particles, 0], 
+                   trajectories[valid_particles, 1],
+                   c='r', s=1, alpha=0.5)
+    
+    plt.xlabel('X')
+    plt.ylabel('Y')
+    plt.title(f'Velocity Field')
+
+
+
+    plt.axis('equal')
+    plt.show()
+
+
+
+
 
 #-------------------------------------------------------#
 

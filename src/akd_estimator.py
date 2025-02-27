@@ -203,7 +203,8 @@ def generate_gaussian_kernels(num_kernels, ratio, stretch=1):
         #impose stretch and calculate the kernel
         h_a = h*stretch
         h_b = h
-        kernel_matrix = ((1 / (2 * np.pi * h_a * h_b)) * np.exp(-0.5 * ((a / h_a) ** 2 + (b / h_b) ** 2)))
+        #dont use stretch yet # ((1 / (2 * np.pi * h_a * h_b))
+        kernel_matrix =  np.exp(-0.5 * ((a / h_a) ** 2 + (b / h_b) ** 2))
         #append the kernel matrix and normalize (to make sure the sum of the kernel is 1)
         gaussian_kernels.append(kernel_matrix / np.sum(kernel_matrix))
         bandwidths_h[i] = h
@@ -483,7 +484,6 @@ def histogram_std(binned_data, effective_samples=None, bin_size=1):
     
     #Sheppards correction term
     sheppard = (1/12)*bin_size*bin_size #weighted data. 
-    #I'm pretty sure this should be scaled............ 
 
     #variance = (np.sum(binned_data*((X-mu_x)**2+(Y-mu_y)**2))/(sum_data-1))-2/12*bin_size*bin_size
 
@@ -681,7 +681,7 @@ if __name__ == "__main__":
     do_plotting = True
 
     frac_diff = 1000 #pick every 1000th particle for the test data
-    grid_size = 60
+    grid_size = 120
     grid_size_physical = 120
     grid_size_plot = int(grid_size_physical/grid_size)
     grid_x = np.linspace(0, grid_size_physical, grid_size)
@@ -926,6 +926,8 @@ if __name__ == "__main__":
         ax4.set_yticks([])
         ax4.set_xticks([])
         ax4.set_title('Adaptive KDE')
+        #flip upside down
+        #ax4.invert_yaxis()
         #remove whitespace between subplots
         plt.subplots_adjust(wspace=0.1)
 
@@ -1188,14 +1190,9 @@ if __name__ == "__main__":
         axs[1].text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
                     horizontalalignment='left', verticalalignment='top')
 
-
-
-        plt.subplots_adjust(wspace=0.3)
-        
+        plt.subplots_adjust(wspace=0.3)        
         plt.tight_layout()
         plt.show()
-        
-
 
     time_end = time.time()
 
