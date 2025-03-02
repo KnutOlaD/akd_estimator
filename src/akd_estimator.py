@@ -12,7 +12,7 @@ import numpy as np
 from scipy.stats import gaussian_kde
 from numba import jit, prange
 import time as time
-import pdm_data_generator as pdg
+import pdm_data_generator_old as pdg
 
 # ------------------------------------------------------- #
 ###########################################################
@@ -203,8 +203,7 @@ def generate_gaussian_kernels(num_kernels, ratio, stretch=1):
         #impose stretch and calculate the kernel
         h_a = h*stretch
         h_b = h
-        #dont use stretch yet # ((1 / (2 * np.pi * h_a * h_b))
-        kernel_matrix =  np.exp(-0.5 * ((a / h_a) ** 2 + (b / h_b) ** 2))
+        kernel_matrix = ((1 / (2 * np.pi * h_a * h_b)) * np.exp(-0.5 * ((a / h_a) ** 2 + (b / h_b) ** 2)))
         #append the kernel matrix and normalize (to make sure the sum of the kernel is 1)
         gaussian_kernels.append(kernel_matrix / np.sum(kernel_matrix))
         bandwidths_h[i] = h
@@ -484,6 +483,7 @@ def histogram_std(binned_data, effective_samples=None, bin_size=1):
     
     #Sheppards correction term
     sheppard = (1/12)*bin_size*bin_size #weighted data. 
+    #I'm pretty sure this should be scaled............ 
 
     #variance = (np.sum(binned_data*((X-mu_x)**2+(Y-mu_y)**2))/(sum_data-1))-2/12*bin_size*bin_size
 
@@ -693,65 +693,51 @@ if __name__ == "__main__":
         illegal_cells = np.zeros((len(grid_x),len(grid_y)))
         #illegal_cells[55:65,70:85] = 1
 
-#        a = 45
-#        b = 15
-#        x0 = 55
-#        y0 = 95
-#        for i in range(len(grid_x)):
-#            for j in range(len(grid_y)):
-#                if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
-#                    illegal_cells[i,j] = 1
-
-
-        #for i in range(len(grid_x)):
-        #    for j in range(len(grid_y)):
-        #        if j > 90:create
-        #            illegal_cells[i,j] = 1
-
-
-        #make an ellips on the upper part of the plot as well 
-#        a = 12
-#        b = 6
-#        x0 = 50
-#        y0 = 55        
-#        for i in range(len(grid_y)):
-#            for j in range(len(grid_x)):
-#                if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
-#                    illegal_cells[i,j] = 1
-
-        a = 4
-        b = 7
-        x0 = 40
-        y0 = 65        
-        for i in range(len(grid_y)):
-            for j in range(len(grid_x)):
-                if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
-                    illegal_cells[i,j] = 1
-        
-        a = 4
-        b = 7
-        x0 = 43
-        y0 = 70        
-        for i in range(len(grid_y)):
-            for j in range(len(grid_x)):
+        a = 40
+        b = 25
+        x0 = 55
+        y0 = 95
+        for i in range(len(grid_x)):
+            for j in range(len(grid_y)):
                 if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
                     illegal_cells[i,j] = 1
 
-        #a = 32
-        #b = 15
-        #x0 = 15
-        #y0 = 75
+        #illegal_cells[60:80,50:70] = 1
+        #illegal_cells[61:79,51:69] = 1
+
+        #illegal_cells[60:80,np.arange(70,50,-1)] = 1
+        #illegal_cells[61:79,np.arange(69,51,-1)] = 1
+        #and the lower part
+        #illegal_cells[60:80,np.arange(30,50)] = 1
+        #illegal_cells[61:79,np.arange(31,49)] = 1
+
+        #a = 4
+        #b = 7
+        #x0 = 43
+        #y0 = 70        
         #for i in range(len(grid_y)):
         #    for j in range(len(grid_x)):
         #        if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
         #            illegal_cells[i,j] = 1
 
-        illegal_positions_hollow_ellipse = illegal_hollow_ellipse.astype(bool)
-
         illegal_positions = illegal_cells.astype(bool)
 
+        #define illegal hollow ellipse for the boundary testing
+
+        illegal_hollow_ellipse = illegal_cells.copy()
+        a = 40-5
+        b = 25-5
+        x0 = 55
+        y0 = 95
+        for i in range(len(grid_x)):
+            for j in range(len(grid_y)):
+                if ((i-x0)/a)**2 + ((j-y0)/b)**2 <= 1:
+                    illegal_hollow_ellipse[i,j] = 0
+
+        illegal_positions_hollow_ellipse = illegal_hollow_ellipse.astype(bool)
+
         # Generate test data with illegal positions
-        trajectories, bw = pdg.create_test_data(stdev=1.8, num_particles_per_timestep=5000, time_steps=650, dt=0.1, grid_size=120, illegal_positions=illegal_positions)
+        trajectories, bw = pdg.create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=380, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
 
         trajectories_test = trajectories[::frac_diff]
         bw_test = bw[::frac_diff]
@@ -778,6 +764,7 @@ if __name__ == "__main__":
     Z = kde(np.vstack([X.flatten(), Y.flatten()])).reshape(X.shape)
     kde_silverman_naive = Z* np.mean(weights_test) * len(trajectories_test)
     kde_silverman_naive = kde_silverman_naive.T
+
 
 
     #######################################
@@ -818,6 +805,7 @@ if __name__ == "__main__":
                                                                ratio)
     bandwidths_h = bandwidths_h* grid_size_physical / grid_size #Scale the bandwidths to the grid size
     
+
 
     # ###- Bandwidth h estimation -### #
 
@@ -866,6 +854,7 @@ if __name__ == "__main__":
 
 
     #Calculate time dependent bandwidth kernel density estimate
+
     tdbkde_estimate = grid_proj_kde(grid_x,
                                     grid_y,
                                     pilot_kde,
@@ -939,47 +928,46 @@ if __name__ == "__main__":
         ax4 = fig.add_subplot(gs[0, 3])
 
         illegal_transparancy = 0.25
-        
+
         # AKDE plot
-        pcm1 = ax4.pcolor(grid_x, grid_y, akde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax4.contour(grid_x, grid_y, akde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)
-        #plot illegal cells using patch
+        pcm1 = ax4.pcolor(grid_y, grid_x, akde_estimate.T, vmin=vmin, vmax=vmax, cmap=cmap1)
+        ax4.contour(grid_y, grid_x, akde_estimate.T, levels[::2], colors='white', linewidths=0.2, alpha=0.5)
+        # Modify Rectangle coordinates for illegal cells
         for i in range(np.shape(illegal_positions)[0]):
             for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
-                    ax4.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
-                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0))
+                    ax4.add_patch(plt.Rectangle((i, j), 1, 1, fill=True, color='grey', 
+                                            alpha=illegal_transparancy, edgecolor='none', linewidth=0))
         ax4.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax4.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         #remove the y-axis to save space
         ax4.set_yticks([])
         ax4.set_xticks([])
         ax4.set_title('Adaptive KDE')
-
         #remove whitespace between subplots
         plt.subplots_adjust(wspace=0.1)
 
         # HE plot
-        ax1.pcolor(grid_x, grid_y, pilot_kde, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax1.contour(grid_x, grid_y, pilot_kde, levels[::2], colors='white',linewidths=0.2,alpha=0.5)   
+        ax1.pcolor(grid_x, grid_y, pilot_kde.T, vmin=vmin, vmax=vmax,cmap=cmap1)
+        ax1.contour(grid_x, grid_y, pilot_kde.T, levels[::2], colors='white',linewidths=0.2,alpha=0.5)   
         for i in range(np.shape(illegal_positions)[0]):
             for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
-                    ax1.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
-                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0)) 
+                    ax1.add_patch(plt.Rectangle((i, j), 1, 1, fill=True, color='grey', 
+                                            alpha=illegal_transparancy, edgecolor='none', linewidth=0))
         ax1.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax1.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax1.set_xticks([])
         ax1.set_title('Histogram Estimate')
 
         # Silverman KDE plot
-        ax2.pcolor(grid_x, grid_y, kde_silverman_naive, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax2.contour(grid_x, grid_y, kde_silverman_naive, levels[::2], colors='white',linewidths=0.2,alpha=0.5) 
+        ax2.pcolor(grid_y, grid_x, kde_silverman_naive.T, vmin=vmin, vmax=vmax, cmap=cmap1)
+        ax2.contour(grid_y, grid_x, kde_silverman_naive.T, levels[::2], colors='white', linewidths=0.2, alpha=0.5)
         for i in range(np.shape(illegal_positions)[0]):
             for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
-                    ax2.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
-                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0))
+                    ax2.add_patch(plt.Rectangle((i, j), 1, 1, fill=True, color='grey', 
+                                            alpha=illegal_transparancy, edgecolor='none', linewidth=0))
         ax2.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax2.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax2.set_yticks([])
@@ -987,13 +975,13 @@ if __name__ == "__main__":
         ax2.set_title('Silverman KDE')
 
         # GT plot
-        ax3.pcolor(grid_x, grid_y, tdbkde_estimate, vmin=vmin, vmax=vmax,cmap=cmap1)
-        ax3.contour(grid_x, grid_y, tdbkde_estimate, levels[::2], colors='white',linewidths=0.2,alpha=0.5)    
+        ax3.pcolor(grid_x, grid_y, tdbkde_estimate.T, vmin=vmin, vmax=vmax,cmap=cmap1)
+        ax3.contour(grid_x, grid_y, tdbkde_estimate.T, levels[::2], colors='white',linewidths=0.2,alpha=0.5)    
         for i in range(np.shape(illegal_positions)[0]):
             for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
-                    ax3.add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
-                                                alpha=illegal_transparancy, edgecolor='none', linewidth=0))
+                    ax3.add_patch(plt.Rectangle((i, j), 1, 1, fill=True, color='grey', 
+                                            alpha=illegal_transparancy, edgecolor='none', linewidth=0))
         ax3.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax3.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax3.set_yticks([])
@@ -1043,25 +1031,26 @@ if __name__ == "__main__":
         res_min = -res_max
 
         # Plot residuals
-        pcm2 = ax8.pcolor(grid_x, grid_y, akde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
+        pcm2 = ax8.pcolor(grid_y, grid_x, akde_residuals.T, vmin=res_min, vmax=res_max, cmap=cmap2)
+        ax5.pcolor(grid_y, grid_x, he_residuals.T, vmin=res_min, vmax=res_max, cmap=cmap2)
+        ax6.pcolor(grid_y, grid_x, silverman_residuals.T, vmin=res_min, vmax=res_max, cmap=cmap2)
+        ax7.pcolor(grid_y, grid_x, tdbkde_residuals.T, vmin=res_min, vmax=res_max, cmap=cmap2)
+
         #set th esame axes limits
         ax8.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax8.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax8.set_yticks([])
         ax8.set_title('AKDE Residuals')
 
-        ax5.pcolor(grid_x, grid_y, he_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
         ax5.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax5.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax5.set_title('HE Residuals')
 
-        ax6.pcolor(grid_x, grid_y, silverman_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
         ax6.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax6.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax6.set_yticks([])
         ax6.set_title('Silverman Residuals')
 
-        ax7.pcolor(grid_x, grid_y, tdbkde_residuals, vmin=res_min, vmax=res_max, cmap=cmap2)
         ax7.set_xlim([0, grid_size_physical-int(grid_size_physical/6)])
         ax7.set_ylim([0, grid_size_physical-int(grid_size_physical/6)])
         ax7.set_yticks([])
@@ -1145,6 +1134,8 @@ if __name__ == "__main__":
                         f'Sum = {sum_tdbkde:.0f}')
         ax3.text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
                     horizontalalignment='left', verticalalignment='top')
+
+
                 
         
         #set fontsize globally for the whole figure
@@ -1168,23 +1159,23 @@ if __name__ == "__main__":
         axs = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1])]
         color2 = '#1f3b4d'
         color1 = '#c79fef'
-        axs[0].scatter(trajectories[:,1],trajectories[:,0],s=0.1,c = color1,label=f'Full data, N={len(trajectories)}')
+        axs[0].scatter(trajectories[:,0],trajectories[:,1],s=0.1,c = color1,label=f'Full data, N={len(trajectories)}')
         #plot the test data on top
-        axs[0].scatter(trajectories_test[:,1],trajectories_test[:,0],s=0.1,c=color2, label=f'Test data, N={len(trajectories_test)}')
+        axs[0].scatter(trajectories_test[:,0],trajectories_test[:,1],s=0.1,c=color2, label=f'Test data, N={len(trajectories_test)}')
         #add the patch of the illegal region
         for i in range(np.shape(illegal_positions)[0]):
             for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
-                    axs[0].add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
-                                                alpha=0.5, edgecolor='none', linewidth=0))
+                    axs[0].add_patch(plt.Rectangle((i, j), 1, 1, fill=True, color='grey', 
+                                            alpha=illegal_transparancy, edgecolor='none', linewidth=0))
         axs[0].set_title('Full data')
         #add legend, with N=number of particles in the test data
-        axs[0].legend(loc='lower right',fontsize=15)
+        axs[0].legend(loc='upper left',fontsize=15)
         axs[0].set_xlim([0, 100])
         axs[0].set_ylim([0, 100])
         #make this plot a bit narrower so it has same size as the colorplot
-        pcm = axs[1].pcolor(grid_x, grid_y, ground_truth, cmap='plasma')
-        axs[1].contour(grid_x, grid_y, ground_truth, levels[::2], colors='white',linewidths=0.2,alpha=0.5)  
+        pcm = axs[1].pcolor(grid_x, grid_y, ground_truth.T, cmap='plasma')
+        axs[1].contour(grid_x, grid_y, ground_truth.T, levels[::2], colors='white',linewidths=0.2,alpha=0.5)  
         axs[1].set_title('Ground truth')
         axs[1].set_xlim([0, 100])
         axs[1].set_ylim([0, 100])
@@ -1193,8 +1184,8 @@ if __name__ == "__main__":
         for i in range(np.shape(illegal_positions)[0]):
             for j in range(np.shape(illegal_positions)[1]):
                 if illegal_positions[i,j]:
-                    axs[1].add_patch(plt.Rectangle((j, i), 1, 1, fill=True, color='grey', 
-                                                alpha=0.5, edgecolor='none', linewidth=0))
+                    axs[1].add_patch(plt.Rectangle((i, j), 1, 1, fill=True, color='grey', 
+                                            alpha=illegal_transparancy, edgecolor='none', linewidth=0))
         cbar3 = fig.colorbar(pcm, ax=axs[1], label='Density')
         #make ticks on colorbar axis in scientific notation to save space
         cbar3.formatter.set_powerlimits((0, 0))
@@ -1218,15 +1209,14 @@ if __name__ == "__main__":
         axs[1].text(4, 97, textbox_text, fontsize=15, bbox=dict(facecolor='white', alpha=0.5, edgecolor='black', boxstyle='round'),
                     horizontalalignment='left', verticalalignment='top')
 
-        plt.subplots_adjust(wspace=0.3)        
+
+
+        plt.subplots_adjust(wspace=0.3)
+        
         plt.tight_layout()
         plt.show()
-
-        ###############################
-        ### PLOT THE VELOCITY FIELD ###
-        ###############################
-
         
+
 
     time_end = time.time()
 
