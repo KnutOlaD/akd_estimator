@@ -12,7 +12,7 @@ import numpy as np
 from scipy.stats import gaussian_kde
 from numba import jit, prange
 import time as time
-import pdm_data_generator_old as pdg
+import pdm_data_generator as pdg
 
 # ------------------------------------------------------- #
 ###########################################################
