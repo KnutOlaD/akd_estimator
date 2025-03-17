@@ -1,3 +1,9 @@
+# SPDX-FileCopyrightText: 2022 Knut Ola Dølven <knut.o.dolven@uit.no> 
+#
+# SPDX-License-Identifier: EUPL-1.2
+
+# -*- coding: utf-8 -*-
+
 """
 2D Particle Dispersion Test Data Generator
 
