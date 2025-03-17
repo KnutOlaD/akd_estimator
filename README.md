@@ -7,4 +7,6 @@ adk_estimator: Contains the functions that does the adaptive kernel density esti
 
 pdm_data_generator: Contains functions that generates "idealized" 2-d particle dispersion modelling output data that is used for testing purposes..  
 
+Working to make this a package, therefore the structure is currently a bit weird....
+
 
