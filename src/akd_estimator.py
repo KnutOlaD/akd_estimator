@@ -17,7 +17,13 @@ import numpy as np
 from scipy.stats import gaussian_kde
 from numba import jit, prange
 import time as time
+import matplotlib.pyplot as plt
+#set folder to the file folder
+import os
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 import pdm_data_generator as pdg
+
+
 
 # ------------------------------------------------------- #
 ###########################################################
@@ -742,7 +748,7 @@ if __name__ == "__main__":
         illegal_positions_hollow_ellipse = illegal_hollow_ellipse.astype(bool)
 
         # Generate test data with illegal positions
-        trajectories, bw = pdg.create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=380, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
+        trajectories, bw = pdg.create_test_data(stdev=1.4, num_particles_per_timestep=5000, time_steps=400, dt=0.1, grid_size=100, illegal_positions=illegal_positions)
 
         trajectories_test = trajectories[::frac_diff]
         bw_test = bw[::frac_diff]
@@ -788,7 +794,9 @@ if __name__ == "__main__":
 
 
     # ###- Pilot KDE -### #
-
+    import time
+    # start timer
+    time_start = time.time()
 
     particle_initial_bandwidths = np.ones(len(trajectories_test)) #not relevant unless using time dependent bandwidths
     pilot_kde,pilot_kde_counts,pilot_kde_bandwidths = histogram_estimator(trajectories_test[:,0],
@@ -797,6 +805,8 @@ if __name__ == "__main__":
                                                                           grid_y,
                                                                           bandwidths=bw_test,
                                                                           weights = weights_test)
+
+
 
 
 
@@ -810,8 +820,6 @@ if __name__ == "__main__":
                                                                ratio)
     bandwidths_h = bandwidths_h* grid_size_physical / grid_size #Scale the bandwidths to the grid size
     
-
-
     # ###- Bandwidth h estimation -### #
 
     # Calculate integral length scale of the whole field to get rough size of adaptation window 
@@ -847,7 +855,6 @@ if __name__ == "__main__":
             y = j * grid_size_physical / grid_size
             illegal_positions_hollow_ellipse[i,j] = illegal_hollow_ellipse[int(x),int(y)]
     
-
     # ###- Do the KDE estimate -### #
     akde_estimate = grid_proj_kde(grid_x,
                                     grid_y,
@@ -857,7 +864,8 @@ if __name__ == "__main__":
                                     h_matrix_adaptive,
                                     illegal_cells=illegal_positions_hollow_ellipse)
 
-
+    end_time = time.time()
+    print(f"AKDE estimate took {end_time - time_start:.5f} seconds")
     #Calculate time dependent bandwidth kernel density estimate
 
     tdbkde_estimate = grid_proj_kde(grid_x,
@@ -867,7 +875,6 @@ if __name__ == "__main__":
                                     bandwidths_h,
                                     pilot_kde_bandwidths,
                                     illegal_cells=illegal_positions_hollow_ellipse)
-
 
     # ------------------------------------------------ #
     ####################################################
