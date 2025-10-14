@@ -1,9 +1,9 @@
 cff-version: 1.2.0
-title: "Modeling water column gas transformation, migration and atmospheric flux from seafloor seepage"
 message: "If you use this code, please cite the following paper:"
 type: article
+title: "Modeling water column gas transformation, migration and atmospheric flux from seafloor seepage"
 authors:
-  - family-names: Dølven
+  - family-names: Dolven
     given-names: K. O.
     orcid: "https://orcid.org/0000-0002-5315-4834"
   - family-names: Espenes
@@ -16,7 +16,7 @@ authors:
     given-names: M.
   - family-names: Randelhoff
     given-names: A.
-  - family-names: Ferré
+  - family-names: Ferre
     given-names: B.
 journal: "EGUsphere"
 volume: "2025"
