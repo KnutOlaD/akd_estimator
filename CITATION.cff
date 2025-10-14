@@ -1,9 +1,30 @@
-cff-version: 1.1.0
-message: "If you use this software, please cite it as below."
+cff-version: 1.2.0
+title: "Modeling water column gas transformation, migration and atmospheric flux from seafloor seepage"
+message: "If you use this code, please cite the following paper:"
+type: article
 authors:
-- family-names: Dølven
-- given-names: Knut Ola
-  orcid: "https://orcid.org/0000-0002-5315-4834"
-title:Resubmission to Ocean Science
-version: v.1.1
+  - family-names: Dølven
+    given-names: K. O.
+    orcid: "https://orcid.org/0000-0002-5315-4834"
+  - family-names: Espenes
+    given-names: H.
+  - family-names: Hanssen
+    given-names: A.
+  - family-names: Sert
+    given-names: M. F.
+  - family-names: Drivdal
+    given-names: M.
+  - family-names: Randelhoff
+    given-names: A.
+  - family-names: Ferré
+    given-names: B.
+journal: "EGUsphere"
+volume: "2025"
+year: 2025
+start: 1
+end: 38
+doi: "10.5194/egusphere-2025-998"
+url: "https://egusphere.copernicus.org/preprints/2025/egusphere-2025-998/"
 date-released: 2025-10-14
+repository-code: "https://github.com/KnutOlaD/akd_estimator"
+license: "MIT"
