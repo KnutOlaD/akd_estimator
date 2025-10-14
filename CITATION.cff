@@ -3,7 +3,7 @@ message: "If you use this software, please cite it as below."
 authors:
 - family-names: Dølven
 - given-names: Knut Ola
-orcid: https://orcid.org/0000-0002-5315-4834
-title:KnutOlaD/akd_estimator: Initial submission to Ocean Science
+  orcid: "https://orcid.org/0000-0002-5315-4834"
+title:Resubmission to Ocean Science
 version: v.1.1
-date-released: 2025-03-17
+date-released: 2025-10-14
