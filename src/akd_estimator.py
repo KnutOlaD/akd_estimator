@@ -11,6 +11,16 @@ Also generates test data and compares.
 
 Author: Knut Ola Dølven
 
+Please cite as:
+Dølven, K. O., Espenes, H., Hanssen, A., Sert, M. F., Drivdal, M., Randelhoff, A., and Ferré, B.: 
+Modeling water column gas transformation, migration and atmospheric flux from seafloor seepage, 
+Ocean Sci., 21, 3031–3054, https://doi.org/10.5194/os-21-3031-2025, 2025. 
+
+and/or if the github repository specifically should be cited:
+Dølven, K. O., and Hanssen, A.:
+Adaptive kernel density estimator with adaptive kernel bandwidthn to produce concentration/density estimates 
+based on particle dispersion trajectory data (Version 1.2), [Computer software], https://github.com/KnutOlaD/akd_estimator, 2025.
+
 '''
 
 import numpy as np
