@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-message: "If you use this software, please cite the paper "Modeling water column gas transformation, migration and atmospheric flux from seafloor seepage" in Ocean Science: https://doi.org/10.5194/os-21-3031-2025. If the code, for some reason, has to be cited separately from the manuscript you can cite as indicated below."
+message: "If you use this software, please cite the paper Modeling water column gas transformation, migration and atmospheric flux from seafloor seepage in Ocean Science: https://doi.org/10.5194/os-21-3031-2025. If the code, for some reason, has to be cited separately from the manuscript you can cite as indicated below."
 authors:
 - family-names: "Dølven"
   given-names: "Knut Ola"
